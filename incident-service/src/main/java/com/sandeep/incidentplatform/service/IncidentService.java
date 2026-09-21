@@ -10,6 +10,7 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.Optional;
 
 @Service
 public class IncidentService {
@@ -37,6 +38,10 @@ public class IncidentService {
         incidents.put(incident.id(), incident);
 
         return incident;
+    }
+
+    public Optional<Incident> findById(UUID id) {
+        return Optional.ofNullable(incidents.get(id));
     }
 }
 

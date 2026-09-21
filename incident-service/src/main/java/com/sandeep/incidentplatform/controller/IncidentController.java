@@ -10,6 +10,11 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import java.util.Optional;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/incidents")
@@ -37,5 +42,26 @@ public class IncidentController {
                 incident.affectedService(),
                 incident.createdAt()
         );
+    }
+
+    @GetMapping("/{id}")
+    public ResponseEntity<IncidentResponse> getIncident(@PathVariable UUID id) {
+        Optional<Incident> found = incidentService.findById(id);
+
+        if (found.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        Incident incident = found.get();
+
+        return ResponseEntity.ok(new IncidentResponse(
+                incident.id(),
+                incident.title(),
+                incident.description(),
+                incident.severity(),
+                incident.status(),
+                incident.affectedService(),
+                incident.createdAt()
+        ));
     }
 }
