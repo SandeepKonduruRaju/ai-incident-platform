@@ -6,6 +6,7 @@ import com.sandeep.incidentplatform.model.IncidentSeverity;
 import com.sandeep.incidentplatform.model.IncidentStatus;
 import com.sandeep.incidentplatform.service.IncidentService;
 import org.junit.jupiter.api.Test;
+import java.util.List;
 import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -71,5 +72,31 @@ class IncidentServiceTest {
         // Assert
         assertTrue(found.isPresent());
         assertEquals(created, found.get());
+    }
+
+    @Test
+    void shouldReturnAllCreatedIncidents() {
+        // Arrange
+        IncidentService service = new IncidentService();
+        Incident first = service.create(new CreateIncidentRequest(
+                "Payments failing",
+                "Customers cannot complete checkout",
+                IncidentSeverity.HIGH,
+                "payment-service"
+        ));
+        Incident second = service.create(new CreateIncidentRequest(
+                "Login errors",
+                "Users cannot sign in",
+                IncidentSeverity.MEDIUM,
+                "auth-service"
+        ));
+
+        // Act
+        List<Incident> incidents = service.findAll();
+
+        // Assert
+        assertEquals(2, incidents.size());
+        assertTrue(incidents.contains(first));
+        assertTrue(incidents.contains(second));
     }
 }

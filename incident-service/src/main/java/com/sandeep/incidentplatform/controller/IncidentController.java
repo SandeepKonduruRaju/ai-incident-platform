@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -33,15 +34,15 @@ public class IncidentController {
 
         Incident incident = incidentService.create(request);
 
-        return new IncidentResponse(
-                incident.id(),
-                incident.title(),
-                incident.description(),
-                incident.severity(),
-                incident.status(),
-                incident.affectedService(),
-                incident.createdAt()
-        );
+        return toResponse(incident);
+    }
+
+    @GetMapping
+    public List<IncidentResponse> listIncidents() {
+        return incidentService.findAll()
+                .stream()
+                .map(this::toResponse)
+                .toList();
     }
 
     @GetMapping("/{id}")
@@ -54,7 +55,11 @@ public class IncidentController {
 
         Incident incident = found.get();
 
-        return ResponseEntity.ok(new IncidentResponse(
+        return ResponseEntity.ok(toResponse(incident));
+    }
+
+    private IncidentResponse toResponse(Incident incident) {
+        return new IncidentResponse(
                 incident.id(),
                 incident.title(),
                 incident.description(),
@@ -62,6 +67,6 @@ public class IncidentController {
                 incident.status(),
                 incident.affectedService(),
                 incident.createdAt()
-        ));
+        );
     }
 }

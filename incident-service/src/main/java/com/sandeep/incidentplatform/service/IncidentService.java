@@ -7,6 +7,7 @@ import com.sandeep.incidentplatform.model.IncidentStatus;
 
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -42,6 +43,10 @@ public class IncidentService {
 
     public Optional<Incident> findById(UUID id) {
         return Optional.ofNullable(incidents.get(id));
+    }
+
+    public List<Incident> findAll() {
+        return List.copyOf(incidents.values());
     }
 }
 

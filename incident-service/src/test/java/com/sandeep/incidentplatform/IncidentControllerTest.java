@@ -8,8 +8,10 @@ import com.sandeep.incidentplatform.service.IncidentService;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import java.util.List;
 import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -45,5 +47,31 @@ class IncidentControllerTest {
         // Assert
         assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
         assertNull(response.getBody());
+    }
+
+    @Test
+    void shouldReturnAllIncidents() {
+        // Arrange
+        IncidentController controller = new IncidentController(new IncidentService());
+        IncidentResponse first = controller.createIncident(new CreateIncidentRequest(
+                "Payments failing",
+                "Customers cannot complete checkout",
+                IncidentSeverity.HIGH,
+                "payment-service"
+        ));
+        IncidentResponse second = controller.createIncident(new CreateIncidentRequest(
+                "Login errors",
+                "Users cannot sign in",
+                IncidentSeverity.MEDIUM,
+                "auth-service"
+        ));
+
+        // Act
+        List<IncidentResponse> incidents = controller.listIncidents();
+
+        // Assert
+        assertEquals(2, incidents.size());
+        assertTrue(incidents.contains(first));
+        assertTrue(incidents.contains(second));
     }
 }
