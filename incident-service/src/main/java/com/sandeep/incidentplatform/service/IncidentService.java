@@ -48,5 +48,16 @@ public class IncidentService {
     public List<Incident> findAll() {
         return List.copyOf(incidents.values());
     }
-}
 
+    public Optional<Incident> updateStatus(UUID id, IncidentStatus status) {
+        return Optional.ofNullable(incidents.computeIfPresent(id, (ignored, existing) -> new Incident(
+                existing.id(),
+                existing.title(),
+                existing.description(),
+                existing.severity(),
+                status,
+                existing.affectedService(),
+                existing.createdAt()
+        )));
+    }
+}

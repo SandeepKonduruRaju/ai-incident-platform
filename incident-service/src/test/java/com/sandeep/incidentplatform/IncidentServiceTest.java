@@ -75,6 +75,19 @@ class IncidentServiceTest {
     }
 
     @Test
+    void shouldReturnEmptyListWhenNoIncidentsExist() {
+        // Arrange
+        IncidentService service = new IncidentService();
+
+        // Act
+        List<Incident> incidents = service.findAll();
+
+        // Assert
+        assertNotNull(incidents);
+        assertTrue(incidents.isEmpty());
+    }
+
+    @Test
     void shouldReturnAllCreatedIncidents() {
         // Arrange
         IncidentService service = new IncidentService();
@@ -98,5 +111,36 @@ class IncidentServiceTest {
         assertEquals(2, incidents.size());
         assertTrue(incidents.contains(first));
         assertTrue(incidents.contains(second));
+    }
+
+    @Test
+    void shouldUpdateIncidentStatus() {
+        // Arrange
+        IncidentService service = new IncidentService();
+        Incident created = service.create(new CreateIncidentRequest(
+                "Payments failing",
+                "Customers cannot complete checkout",
+                IncidentSeverity.HIGH,
+                "payment-service"
+        ));
+
+        // Act
+        Optional<Incident> updated = service.updateStatus(created.id(), IncidentStatus.MITIGATED);
+
+        // Assert
+        assertTrue(updated.isPresent());
+        assertEquals(IncidentStatus.MITIGATED, updated.get().status());
+    }
+
+    @Test
+    void shouldReturnEmptyWhenUpdatingMissingIncidentStatus() {
+        // Arrange
+        IncidentService service = new IncidentService();
+
+        // Act
+        Optional<Incident> updated = service.updateStatus(UUID.randomUUID(), IncidentStatus.RESOLVED);
+
+        // Assert
+        assertTrue(updated.isEmpty());
     }
 }

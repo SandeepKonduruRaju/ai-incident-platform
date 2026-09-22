@@ -3,7 +3,9 @@ package com.sandeep.incidentplatform;
 import com.sandeep.incidentplatform.controller.IncidentController;
 import com.sandeep.incidentplatform.dto.CreateIncidentRequest;
 import com.sandeep.incidentplatform.dto.IncidentResponse;
+import com.sandeep.incidentplatform.dto.UpdateIncidentStatusRequest;
 import com.sandeep.incidentplatform.model.IncidentSeverity;
+import com.sandeep.incidentplatform.model.IncidentStatus;
 import com.sandeep.incidentplatform.service.IncidentService;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -73,5 +75,43 @@ class IncidentControllerTest {
         assertEquals(2, incidents.size());
         assertTrue(incidents.contains(first));
         assertTrue(incidents.contains(second));
+    }
+
+    @Test
+    void shouldUpdateIncidentStatusWhenIdExists() {
+        // Arrange
+        IncidentController controller = new IncidentController(new IncidentService());
+        IncidentResponse created = controller.createIncident(new CreateIncidentRequest(
+                "Payments failing",
+                "Customers cannot complete checkout",
+                IncidentSeverity.HIGH,
+                "payment-service"
+        ));
+
+        // Act
+        ResponseEntity<IncidentResponse> response = controller.updateIncidentStatus(
+                created.id(),
+                new UpdateIncidentStatusRequest(IncidentStatus.INVESTIGATING)
+        );
+
+        // Assert
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(IncidentStatus.INVESTIGATING, response.getBody().status());
+    }
+
+    @Test
+    void shouldReturn404WhenUpdatingMissingIncidentStatus() {
+        // Arrange
+        IncidentController controller = new IncidentController(new IncidentService());
+
+        // Act
+        ResponseEntity<IncidentResponse> response = controller.updateIncidentStatus(
+                UUID.randomUUID(),
+                new UpdateIncidentStatusRequest(IncidentStatus.RESOLVED)
+        );
+
+        // Assert
+        assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
+        assertNull(response.getBody());
     }
 }

@@ -2,9 +2,11 @@ package com.sandeep.incidentplatform.controller;
 
 import com.sandeep.incidentplatform.dto.CreateIncidentRequest;
 import com.sandeep.incidentplatform.dto.IncidentResponse;
+import com.sandeep.incidentplatform.dto.UpdateIncidentStatusRequest;
 import com.sandeep.incidentplatform.model.Incident;
 import com.sandeep.incidentplatform.service.IncidentService;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -56,6 +58,17 @@ public class IncidentController {
         Incident incident = found.get();
 
         return ResponseEntity.ok(toResponse(incident));
+    }
+
+    @PatchMapping("/{id}/status")
+    public ResponseEntity<IncidentResponse> updateIncidentStatus(
+            @PathVariable UUID id,
+            @RequestBody UpdateIncidentStatusRequest request) {
+
+        return incidentService.updateStatus(id, request.status())
+                .map(this::toResponse)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     private IncidentResponse toResponse(Incident incident) {
