@@ -55,25 +55,33 @@ Verify the git root and remotes with `git rev-parse --show-toplevel` and `git re
 - `GET /api/v1/incidents/{id}` → 200 / 404
 - `GET /api/v1/incidents` → list
 - `PATCH /api/v1/incidents/{id}/status` → 200 / 404 (`UpdateIncidentStatusRequest`)
-- Tests: `IncidentServiceTest` (unit), `IncidentControllerTest` (plain unit test that calls
-  controller methods directly, NOT MockMvc, so `@ResponseStatus(201)` is untested), health,
-  context load
 - "Day4" JPA start: `Incident` is an `@Entity` (`incidents` table), `IncidentRepository extends
   JpaRepository<Incident, UUID>`, pom has data-jpa, postgresql (runtime), h2 (test).
 
+### Done on `feature/finish-jpa` (not yet merged)
+- Steps C–F. Validation: `@NotBlank title`, `@NotNull severity`, `@NotBlank affectedService` on
+  `CreateIncidentRequest`; `@NotNull status` on `UpdateIncidentStatusRequest`; `@Valid` on POST
+  and PATCH (missing/blank → 400).
+- `IncidentService` takes `IncidentRepository` by constructor injection; the map is gone.
+  `updateStatus` is `@Transactional`: load → `incident.changeStatus(...)` → dirty checking
+  writes it on commit (no explicit save).
+- `Incident` has `changeStatus()` and `@Version Long version` (optimistic locking; also makes
+  Spring Data see a null version as "new", so `save()` inserts without a SELECT despite the
+  assigned UUID).
+- Tests (18): `IncidentServiceTest` (Mockito-mocked repository, no Spring), `IncidentControllerTest`
+  and `IncidentControllerValidationTest` (`@WebMvcTest` + `@MockitoBean` service: real HTTP
+  status codes and JSON), health, context load (H2).
+- The old nested copy (`incident-service\incident-service\`) has been deleted; its reference
+  code is on `master` of the abandoned GitHub repo `incident-service`.
+
 ### Not finished
-- `IncidentService` still stores incidents in its own `ConcurrentHashMap`; `IncidentRepository`
-  is not used yet.
-- No datasource configured: tests pass (H2 on test classpath) but the app will not start.
-- Request validation is done (Step C): `@NotBlank title`, `@NotNull severity`,
-  `@NotBlank affectedService` on `CreateIncidentRequest`, `@Valid` on POST, proven by the
-  `@WebMvcTest` `IncidentControllerValidationTest` (blank title / missing severity → 400, valid → 201).
-  The old nested copy (`incident-service\incident-service\`) has been deleted; its reference
-  code is on `master` of the abandoned GitHub repo `incident-service`. There is now only ONE
-  project: `incident-service\` directly under the git root.
+- No datasource configured: tests pass (H2 on test classpath) but the app will not start (Step G).
+- No schema management yet: Hibernate auto-creates tables in H2 only (Step H: Flyway).
+- Nothing yet proves real persistence end to end: unit tests mock the repository. Verified in
+  Step I (Postman against PostgreSQL) and later Testcontainers integration tests.
 
 ### Current architecture
-HTTP → IncidentController → IncidentService → ConcurrentHashMap (JpaRepository unused)
+HTTP → IncidentController → IncidentService → IncidentRepository (JpaRepository) → (no DB yet; H2 in tests)
 
 ### Next: finish JPA persistence (decision: keep Day4, finish it)
 Target: HTTP → Controller → IncidentService → IncidentRepository (JpaRepository) → PostgreSQL.
@@ -111,6 +119,6 @@ PostgreSQL in the app. Review my answers.
 | POST / GET by id / GET all / PATCH status | ✅ Done |
 | Request validation | ✅ Done (dependency, DTO annotations, `@Valid`) |
 | Validation tested (blank title → 400, MockMvc) | ✅ Done (`IncidentControllerValidationTest`) |
-| JPA persistence (Steps A–J) | 🔄 Step D next (A, B, C done) |
+| JPA persistence (Steps A–J) | 🔄 Step G next (A–F done) |
 | PostgreSQL running locally | ⬜ |
 | Authentication, tenant isolation, RBAC | ⬜ |
