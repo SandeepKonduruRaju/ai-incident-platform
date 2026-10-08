@@ -42,84 +42,55 @@ Java 17, Spring Boot 4.1.1, Maven. Package: `com.sandeep.incidentplatform`.
 Repo: https://github.com/SandeepKonduruRaju/ai-incident-platform (default branch `main`).
 Git root: `C:\Users\deepa\OneDrive\Desktop\project\ai-incident-platform` (monorepo).
 The Spring Boot service lives in `incident-service\`; run Maven from there.
-Work happens on feature branches (current: `feature/finish-jpa`), merged into `main` via PR.
+Work happens on feature branches (current: `feature/milestone-1-completion`), merged into `main` via PR.
 `core.longpaths` is enabled in this repo (long OneDrive paths).
 `C:\Users\deepa\OneDrive\Desktop\project` is a separate, unrelated repo (SecureAgent) that
 ignores `ai-incident-platform/`. Never commit this project there.
 GitHub repo `incident-service` is an abandoned duplicate (to be archived). Don't use it.
 Verify the git root and remotes with `git rev-parse --show-toplevel` and `git remote -v`.
 
-### Already implemented (on `main`)
-- `GET /api/v1/health`
-- `POST /api/v1/incidents` → 201 Created
-- `GET /api/v1/incidents/{id}` → 200 / 404
-- `GET /api/v1/incidents` → list
-- `PATCH /api/v1/incidents/{id}/status` → 200 / 404 (`UpdateIncidentStatusRequest`)
-- "Day4" JPA start: `Incident` is an `@Entity` (`incidents` table), `IncidentRepository extends
-  JpaRepository<Incident, UUID>`, pom has data-jpa, postgresql (runtime), h2 (test).
+### Current state: Milestone 1 complete (on `feature/milestone-1-completion`, not yet merged)
+The JPA plan (Steps A–J) was merged to `main` as PR #1. At Sandy's request, Claude then wrote
+Blocks 3–7 plus docs on the milestone branch. Sandy now studies them section by section using
+`docs/milestone-1-study-guide.md` (quiz from it). Full overview: `README.md`.
 
-### Done on `feature/finish-jpa` (not yet merged)
-- Steps C–F. Validation: `@NotBlank title`, `@NotNull severity`, `@NotBlank affectedService` on
-  `CreateIncidentRequest`; `@NotNull status` on `UpdateIncidentStatusRequest`; `@Valid` on POST
-  and PATCH (missing/blank → 400).
-- `IncidentService` takes `IncidentRepository` by constructor injection; the map is gone.
-  `updateStatus` is `@Transactional`: load → `incident.changeStatus(...)` → dirty checking
-  writes it on commit (no explicit save).
-- `Incident` has `changeStatus()` and `@Version Long version` (optimistic locking; also makes
-  Spring Data see a null version as "new", so `save()` inserts without a SELECT despite the
-  assigned UUID).
-- Tests (18): `IncidentServiceTest` (Mockito-mocked repository, no Spring), `IncidentControllerTest`
-  and `IncidentControllerValidationTest` (`@WebMvcTest` + `@MockitoBean` service: real HTTP
-  status codes and JSON), health, context load (H2).
-- The old nested copy (`incident-service\incident-service\`) has been deleted; its reference
-  code is on `master` of the abandoned GitHub repo `incident-service`.
+- **API:** POST 201, GET list (newest first) / by id 200, PATCH status 200; health public.
+- **Validation:** `@NotBlank` / `@NotNull` / `@Size` on request DTOs + `@Valid` gives 400.
+- **Persistence:** `IncidentService` → `IncidentRepository` (Spring Data JPA) → PostgreSQL 18.
+  `updateStatus` is `@Transactional` (dirty checking via `Incident.changeStatus`); `@Version`
+  optimistic locking gives 409. Flyway owns the schema (V1 incidents, V2 `tenant_id` + index),
+  `ddl-auto=validate`, `open-in-view=false`.
+- **Errors:** `GlobalExceptionHandler` (`@RestControllerAdvice` extending
+  `ResponseEntityExceptionHandler`) returns RFC 9457 Problem Details for 400/403/404/409/500;
+  500 logs details server-side and never leaks them. Controller throws `IncidentNotFoundException`.
+- **Auth:** OAuth2 resource server, HS256 JWT (`JWT_SECRET` env var, at least 32 bytes, fail fast),
+  issuer `incident-platform`, `tenant_id` claim required (else 401). Stateless, CSRF off.
+  `DevTokenController` (`POST /api/v1/dev/token`) exists only with `SPRING_PROFILES_ACTIVE=dev`.
+- **Tenancy:** tenant only from the JWT (`TenantResolver`); all queries tenant-scoped;
+  another tenant's incident gives 404.
+- **RBAC:** `roles` claim mapped to `ROLE_*` by `JwtAuthenticationConverter`; rules in
+  `SecurityConfig`: VIEWER reads; RESPONDER/ADMIN also create and PATCH; wrong role gives 403.
+- **Tests (48):** unit (Mockito), `@WebMvcTest` slices (controller, validation, errors, RBAC),
+  real-token security tests, Testcontainers PostgreSQL integration (skipped without Docker).
+  Other tests use H2 (PostgreSQL mode) via `src/test/resources/application.properties`.
+- **Verified manually 2026-10-08** on local PostgreSQL with the dev profile: 401/200/201/403/404,
+  tenant isolation, Problem Details; V2 migrated the existing row to tenant `default`.
+- Local DB: database `incident_platform`, role `incident_app` (password known to Sandy; never
+  commit it). Run with `$env:DB_PASSWORD`, `$env:JWT_SECRET`, optional `$env:SPRING_PROFILES_ACTIVE="dev"`.
 
-- Steps G–H. `application.properties` points at local PostgreSQL 18 (Windows service
-  `postgresql-x64-18`, port 5432): `DB_URL` (default `jdbc:postgresql://localhost:5432/incident_platform`),
-  `DB_USERNAME` (default `incident_app`), `DB_PASSWORD` (env var only, no default → fail fast).
-  Flyway owns the schema (`db/migration/V1__create_incidents_table.sql`), `ddl-auto=validate`,
-  `open-in-view=false`. `src/test/resources/application.properties` shadows it with H2 in
-  PostgreSQL mode, so tests need no DB and still run the real migrations.
-  `CreateIncidentRequest` has `@Size` limits matching the column lengths.
-
-- Step I verified manually against local PostgreSQL (DB `incident_platform`, role
-  `incident_app`, created 2026-10-08): POST 201, GET 200/404, list, PATCH 200 (version 0 → 1),
-  blank title / missing status → 400, and the incident survives an app restart; Flyway reports
-  "up to date" on the second start.
-
-### Not finished
-- No automated test proves persistence end to end (unit tests mock the repository): add
-  Testcontainers integration tests (M1, block 4).
-- Minor: POST response `createdAt` has nanosecond precision, later GETs return microseconds
-  (PostgreSQL precision). Fix by truncating `Instant.now()` to micros.
+### Known limitations / possible next steps
+- No PostgreSQL row-level security (tenant filtering relies on repository methods).
+- JWT is HS256 with a shared secret; production would use an IdP with RS256/JWKS.
+- 401/403 from Spring Security use its default responses (not Problem Details).
+- No pagination on the list endpoint yet.
 
 ### Current architecture
-HTTP → IncidentController → IncidentService → IncidentRepository (JpaRepository) → PostgreSQL
-(schema by Flyway; H2 in PostgreSQL mode in tests)
-
-### Next: finish JPA persistence (decision: keep Day4, finish it)
-Target: HTTP → Controller → IncidentService → IncidentRepository (JpaRepository) → PostgreSQL.
-Existing HTTP behaviour must NOT change (POST 201, GET 200/404, list, PATCH 200/404).
-
-Steps (one at a time, wait for me after each):
-A. Review Day4 code and the gap to "finished"
-B. Concepts: @Entity, @Id, protected no-arg constructor, JpaRepository, H2 vs PostgreSQL
-C. I port request validation (+ a test proving blank title → 400)
-D. Service depends on `IncidentRepository` (constructor injection) for create / findById / findAll
-E. updateStatus with JPA (load → change → save; @Transactional; where the rule lives)
-F. Update tests (service unit tests can no longer use `new IncidentService()` with its own map)
-G. Configure PostgreSQL datasource (application.properties, credentials via env vars)
-H. Schema: Hibernate ddl-auto vs Flyway migrations
-I. Run tests, then Postman against real PostgreSQL
-J. Commit + PR to `main` (only when I say so)
-
-Before starting B, ask me to explain in my own words: what an entity is, what JpaRepository
-gives me for free, why the service shouldn't own the map, and why H2 is used in tests but
-PostgreSQL in the app. Review my answers.
+HTTP (Bearer JWT) → Spring Security (JWT validation, tenant claim, roles) → IncidentController
+→ IncidentService (tenant-scoped, @Transactional) → IncidentRepository (JPA) → PostgreSQL (Flyway)
 
 ## Roadmap (current vs future: never claim future work is done)
-- **M1 Reliable backend:** CRUD ✅, validation (port to main), JPA + PostgreSQL + Flyway,
-  error handling (@RestControllerAdvice), integration tests, auth, tenant isolation, RBAC
+- **M1 Reliable backend:** CRUD, validation, JPA + PostgreSQL + Flyway, error handling,
+  integration tests, auth, tenant isolation, RBAC ✅ (on milestone branch, PR pending)
 - **M2 Investigation:** Kafka, async processing, idempotency, retries, DLQ, Python/FastAPI,
   RAG, pgvector, LangGraph, hypotheses with evidence, missing info, evaluation
 - **M3 Deployed app:** React, Docker, CI/CD, AWS, Terraform, Kubernetes
@@ -133,6 +104,9 @@ PostgreSQL in the app. Review my answers.
 | POST / GET by id / GET all / PATCH status | ✅ Done |
 | Request validation | ✅ Done (dependency, DTO annotations, `@Valid`) |
 | Validation tested (blank title → 400, MockMvc) | ✅ Done (`IncidentControllerValidationTest`) |
-| JPA persistence (Steps A–J) | 🔄 Step J next: PR to main (A–I done) |
+| JPA persistence (Steps A–J) | ✅ Done (PR #1 merged to `main`) |
 | PostgreSQL running locally | ✅ Done (PostgreSQL 18, DB + role created, app verified) |
-| Authentication, tenant isolation, RBAC | ⬜ |
+| Error handling (Problem Details) | ✅ Done (milestone branch) |
+| Integration tests (Testcontainers) | ✅ Done (milestone branch) |
+| Authentication, tenant isolation, RBAC | ✅ Done (milestone branch) |
+| README + study guide | ✅ Done; Sandy studying section by section |
