@@ -5,6 +5,7 @@ import com.sandeep.incidentplatform.dto.IncidentResponse;
 import com.sandeep.incidentplatform.dto.UpdateIncidentStatusRequest;
 import com.sandeep.incidentplatform.model.Incident;
 import com.sandeep.incidentplatform.service.IncidentService;
+import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -32,7 +33,7 @@ public class IncidentController {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public IncidentResponse createIncident(
-            @RequestBody CreateIncidentRequest request) {
+            @Valid @RequestBody CreateIncidentRequest request) {
 
         Incident incident = incidentService.create(request);
 
