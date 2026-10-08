@@ -8,7 +8,11 @@ import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
+import org.springframework.security.oauth2.core.OAuth2TokenValidator;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.jwt.JwtClaimValidator;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
@@ -43,8 +47,12 @@ public class SecurityConfig {
         NimbusJwtDecoder decoder = NimbusJwtDecoder.withSecretKey(properties.secretKey())
                 .macAlgorithm(MacAlgorithm.HS256)
                 .build();
-        // Checks expiry/not-before (with clock skew) and that "iss" matches our issuer.
-        decoder.setJwtValidator(JwtValidators.createDefaultWithIssuer(properties.issuer()));
+        // Checks expiry/not-before (with clock skew), that "iss" matches our issuer, and that the
+        // token names a tenant: a token without tenant_id is invalid for this API (401).
+        OAuth2TokenValidator<Jwt> requireTenant = new JwtClaimValidator<String>(
+                TenantResolver.TENANT_CLAIM, tenant -> tenant != null && !tenant.isBlank());
+        decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(
+                JwtValidators.createDefaultWithIssuer(properties.issuer()), requireTenant));
         return decoder;
     }
 }

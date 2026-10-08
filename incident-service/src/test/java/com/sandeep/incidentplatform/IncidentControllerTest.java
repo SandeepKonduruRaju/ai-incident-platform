@@ -22,6 +22,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static com.sandeep.incidentplatform.TestJwt.TENANT;
 import static com.sandeep.incidentplatform.TestJwt.asUser;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -44,7 +45,7 @@ class IncidentControllerTest {
     void shouldReturn200WithIncidentWhenIdExists() throws Exception {
         // Arrange
         Incident incident = incident("Payments failing", IncidentStatus.OPEN);
-        when(incidentService.findById(incident.id())).thenReturn(Optional.of(incident));
+        when(incidentService.findById(TENANT, incident.id())).thenReturn(Optional.of(incident));
 
         // Act + Assert
         mockMvc.perform(get("/api/v1/incidents/{id}", incident.id()).with(asUser()))
@@ -58,7 +59,7 @@ class IncidentControllerTest {
     void shouldReturn404WhenIdDoesNotExist() throws Exception {
         // Arrange
         UUID unknownId = UUID.randomUUID();
-        when(incidentService.findById(unknownId)).thenReturn(Optional.empty());
+        when(incidentService.findById(TENANT, unknownId)).thenReturn(Optional.empty());
 
         // Act + Assert
         mockMvc.perform(get("/api/v1/incidents/{id}", unknownId).with(asUser()))
@@ -68,7 +69,7 @@ class IncidentControllerTest {
     @Test
     void shouldReturnAllIncidents() throws Exception {
         // Arrange
-        when(incidentService.findAll()).thenReturn(List.of(
+        when(incidentService.findAll(TENANT)).thenReturn(List.of(
                 incident("Payments failing", IncidentStatus.OPEN),
                 incident("Login errors", IncidentStatus.INVESTIGATING)
         ));
@@ -85,7 +86,7 @@ class IncidentControllerTest {
     void shouldUpdateIncidentStatusWhenIdExists() throws Exception {
         // Arrange
         Incident updated = incident("Payments failing", IncidentStatus.INVESTIGATING);
-        when(incidentService.updateStatus(updated.id(), IncidentStatus.INVESTIGATING))
+        when(incidentService.updateStatus(TENANT, updated.id(), IncidentStatus.INVESTIGATING))
                 .thenReturn(Optional.of(updated));
 
         // Act + Assert
@@ -102,7 +103,7 @@ class IncidentControllerTest {
     void shouldReturn404WhenUpdatingMissingIncidentStatus() throws Exception {
         // Arrange
         UUID unknownId = UUID.randomUUID();
-        when(incidentService.updateStatus(unknownId, IncidentStatus.RESOLVED)).thenReturn(Optional.empty());
+        when(incidentService.updateStatus(TENANT, unknownId, IncidentStatus.RESOLVED)).thenReturn(Optional.empty());
 
         // Act + Assert
         mockMvc.perform(patch("/api/v1/incidents/{id}/status", unknownId)
@@ -121,12 +122,13 @@ class IncidentControllerTest {
                         .content("{}").with(asUser()))
                 .andExpect(status().isBadRequest());
 
-        verify(incidentService, never()).updateStatus(any(), any());
+        verify(incidentService, never()).updateStatus(any(), any(), any());
     }
 
     private Incident incident(String title, IncidentStatus status) {
         return new Incident(
                 UUID.randomUUID(),
+                TENANT,
                 title,
                 "Some description",
                 IncidentSeverity.HIGH,

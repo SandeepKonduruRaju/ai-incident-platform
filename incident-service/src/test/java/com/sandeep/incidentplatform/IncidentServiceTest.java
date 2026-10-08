@@ -28,6 +28,8 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class IncidentServiceTest {
 
+    private static final String TENANT = "acme";
+
     @Mock
     private IncidentRepository incidentRepository;
 
@@ -50,10 +52,11 @@ class IncidentServiceTest {
         );
 
         // Act
-        Incident incident = service.create(request);
+        Incident incident = service.create(TENANT, request);
 
         // Assert
         assertNotNull(incident.id());
+        assertEquals(TENANT, incident.tenantId());
         assertNotNull(incident.createdAt());
         assertEquals(0, incident.createdAt().getNano() % 1_000, "createdAt is truncated to microseconds");
         assertEquals(IncidentStatus.OPEN, incident.status());
@@ -65,26 +68,26 @@ class IncidentServiceTest {
     }
 
     @Test
-    void shouldReturnEmptyWhenIncidentDoesNotExist() {
+    void shouldReturnEmptyWhenIncidentDoesNotExistForTenant() {
         // Arrange
         UUID unknownId = UUID.randomUUID();
-        when(incidentRepository.findById(unknownId)).thenReturn(Optional.empty());
+        when(incidentRepository.findByIdAndTenantId(unknownId, TENANT)).thenReturn(Optional.empty());
 
         // Act
-        Optional<Incident> found = service.findById(unknownId);
+        Optional<Incident> found = service.findById(TENANT, unknownId);
 
         // Assert
         assertTrue(found.isEmpty());
     }
 
     @Test
-    void shouldFindIncidentById() {
+    void shouldFindIncidentByIdWithinTenant() {
         // Arrange
         Incident existing = incident(IncidentStatus.OPEN);
-        when(incidentRepository.findById(existing.id())).thenReturn(Optional.of(existing));
+        when(incidentRepository.findByIdAndTenantId(existing.id(), TENANT)).thenReturn(Optional.of(existing));
 
         // Act
-        Optional<Incident> found = service.findById(existing.id());
+        Optional<Incident> found = service.findById(TENANT, existing.id());
 
         // Assert
         assertTrue(found.isPresent());
@@ -92,12 +95,12 @@ class IncidentServiceTest {
     }
 
     @Test
-    void shouldReturnEmptyListWhenNoIncidentsExist() {
+    void shouldReturnEmptyListWhenTenantHasNoIncidents() {
         // Arrange
-        when(incidentRepository.findAll()).thenReturn(List.of());
+        when(incidentRepository.findAllByTenantIdOrderByCreatedAtDesc(TENANT)).thenReturn(List.of());
 
         // Act
-        List<Incident> incidents = service.findAll();
+        List<Incident> incidents = service.findAll(TENANT);
 
         // Assert
         assertNotNull(incidents);
@@ -105,14 +108,14 @@ class IncidentServiceTest {
     }
 
     @Test
-    void shouldReturnAllIncidents() {
+    void shouldReturnAllIncidentsOfTenant() {
         // Arrange
         Incident first = incident(IncidentStatus.OPEN);
         Incident second = incident(IncidentStatus.INVESTIGATING);
-        when(incidentRepository.findAll()).thenReturn(List.of(first, second));
+        when(incidentRepository.findAllByTenantIdOrderByCreatedAtDesc(TENANT)).thenReturn(List.of(first, second));
 
         // Act
-        List<Incident> incidents = service.findAll();
+        List<Incident> incidents = service.findAll(TENANT);
 
         // Assert
         assertEquals(List.of(first, second), incidents);
@@ -122,10 +125,10 @@ class IncidentServiceTest {
     void shouldUpdateIncidentStatus() {
         // Arrange
         Incident existing = incident(IncidentStatus.OPEN);
-        when(incidentRepository.findById(existing.id())).thenReturn(Optional.of(existing));
+        when(incidentRepository.findByIdAndTenantId(existing.id(), TENANT)).thenReturn(Optional.of(existing));
 
         // Act
-        Optional<Incident> updated = service.updateStatus(existing.id(), IncidentStatus.MITIGATED);
+        Optional<Incident> updated = service.updateStatus(TENANT, existing.id(), IncidentStatus.MITIGATED);
 
         // Assert: the same loaded entity is changed in place (JPA dirty checking persists it)
         assertTrue(updated.isPresent());
@@ -134,13 +137,13 @@ class IncidentServiceTest {
     }
 
     @Test
-    void shouldReturnEmptyWhenUpdatingMissingIncidentStatus() {
+    void shouldReturnEmptyWhenUpdatingIncidentOutsideTenant() {
         // Arrange
         UUID unknownId = UUID.randomUUID();
-        when(incidentRepository.findById(unknownId)).thenReturn(Optional.empty());
+        when(incidentRepository.findByIdAndTenantId(unknownId, TENANT)).thenReturn(Optional.empty());
 
         // Act
-        Optional<Incident> updated = service.updateStatus(unknownId, IncidentStatus.RESOLVED);
+        Optional<Incident> updated = service.updateStatus(TENANT, unknownId, IncidentStatus.RESOLVED);
 
         // Assert
         assertTrue(updated.isEmpty());
@@ -149,6 +152,7 @@ class IncidentServiceTest {
     private Incident incident(IncidentStatus status) {
         return new Incident(
                 UUID.randomUUID(),
+                TENANT,
                 "Payments failing",
                 "Customers cannot complete checkout",
                 IncidentSeverity.HIGH,

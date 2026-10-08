@@ -1,5 +1,6 @@
 package com.sandeep.incidentplatform.exception;
 
+import com.sandeep.incidentplatform.security.MissingTenantException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.OptimisticLockingFailureException;
@@ -49,6 +50,14 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     public ProblemDetail handleIncidentNotFound(IncidentNotFoundException ex) {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, ex.getMessage());
         problem.setTitle("Incident not found");
+        return problem;
+    }
+
+    // 403: authenticated, but the token does not say which tenant the caller belongs to.
+    @ExceptionHandler(MissingTenantException.class)
+    public ProblemDetail handleMissingTenant(MissingTenantException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, ex.getMessage());
+        problem.setTitle("Missing tenant");
         return problem;
     }
 

@@ -20,6 +20,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static com.sandeep.incidentplatform.TestJwt.TENANT;
 import static com.sandeep.incidentplatform.TestJwt.asUser;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -50,7 +51,7 @@ class IncidentControllerValidationTest {
                                 """).with(asUser()))
                 .andExpect(status().isBadRequest());
 
-        verify(incidentService, never()).create(any());
+        verify(incidentService, never()).create(any(), any());
     }
 
     @Test
@@ -66,14 +67,15 @@ class IncidentControllerValidationTest {
                                 """).with(asUser()))
                 .andExpect(status().isBadRequest());
 
-        verify(incidentService, never()).create(any());
+        verify(incidentService, never()).create(any(), any());
     }
 
     @Test
     void shouldReturn201WhenRequestIsValid() throws Exception {
         // Arrange
-        when(incidentService.create(any())).thenReturn(new Incident(
+        when(incidentService.create(any(), any())).thenReturn(new Incident(
                 UUID.randomUUID(),
+                TENANT,
                 "Payments failing",
                 "Customers cannot complete checkout",
                 IncidentSeverity.HIGH,

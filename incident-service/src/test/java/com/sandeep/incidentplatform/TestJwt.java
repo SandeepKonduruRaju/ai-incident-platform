@@ -11,10 +11,16 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
  */
 final class TestJwt {
 
+    static final String TENANT = "acme";
+
     private TestJwt() {
     }
 
     static JwtRequestPostProcessor asUser() {
-        return jwt().jwt(token -> token.subject("alice"));
+        return asTenant(TENANT);
+    }
+
+    static JwtRequestPostProcessor asTenant(String tenantId) {
+        return jwt().jwt(token -> token.subject("alice").claim("tenant_id", tenantId));
     }
 }

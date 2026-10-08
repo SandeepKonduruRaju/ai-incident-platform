@@ -24,6 +24,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static com.sandeep.incidentplatform.TestJwt.asTenant;
 import static com.sandeep.incidentplatform.TestJwt.asUser;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -108,7 +109,7 @@ class IncidentApiIntegrationTest {
     @Test
     void shouldRejectStaleUpdateWithOptimisticLocking() {
         Incident saved = incidentRepository.save(new Incident(
-                UUID.randomUUID(), "Login errors", null, IncidentSeverity.MEDIUM,
+                UUID.randomUUID(), "acme", "Login errors", null, IncidentSeverity.MEDIUM,
                 IncidentStatus.OPEN, "auth-service", Instant.now().truncatedTo(ChronoUnit.MICROS)));
 
         // Two independent copies of the same row, both at version 0
@@ -120,5 +121,35 @@ class IncidentApiIntegrationTest {
 
         second.changeStatus(IncidentStatus.RESOLVED);
         assertThrows(ObjectOptimisticLockingFailureException.class, () -> incidentRepository.save(second));
+    }
+
+    @Test
+    void shouldIsolateIncidentsBetweenTenants() throws Exception {
+        // Tenant "acme" creates an incident
+        MvcResult created = mockMvc.perform(post("/api/v1/incidents")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "title": "Acme outage", "severity": "HIGH", "affectedService": "billing" }
+                                """).with(asTenant("acme")))
+                .andExpect(status().isCreated())
+                .andReturn();
+        String id = JsonPath.read(created.getResponse().getContentAsString(), "$.id");
+
+        // Tenant "globex" can neither see nor change it: it looks like it does not exist
+        mockMvc.perform(get("/api/v1/incidents/{id}", id).with(asTenant("globex")))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/v1/incidents").with(asTenant("globex")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+        mockMvc.perform(patch("/api/v1/incidents/{id}/status", id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{ \"status\": \"RESOLVED\" }").with(asTenant("globex")))
+                .andExpect(status().isNotFound());
+
+        // The owner still sees it, unchanged
+        mockMvc.perform(get("/api/v1/incidents/{id}", id).with(asTenant("acme")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("OPEN"));
+        assertEquals("acme", incidentRepository.findById(UUID.fromString(id)).orElseThrow().tenantId());
     }
 }

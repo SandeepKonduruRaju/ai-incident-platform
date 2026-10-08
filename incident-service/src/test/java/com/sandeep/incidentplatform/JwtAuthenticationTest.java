@@ -83,23 +83,37 @@ class JwtAuthenticationTest {
     }
 
     @Test
+    void shouldRejectTokenWithoutTenant() throws Exception {
+        String token = token(SECRET, ISSUER, Instant.now().plus(Duration.ofMinutes(5)), null);
+
+        mockMvc.perform(get("/api/v1/incidents").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void shouldNotExposeDevTokenEndpointOutsideDevProfile() throws Exception {
         mockMvc.perform(post("/api/v1/dev/token")
                         .contentType("application/json")
-                        .content("{ \"subject\": \"alice\" }"))
+                        .content("{ \"subject\": \"alice\", \"tenantId\": \"acme\" }"))
                 .andExpect(status().isNotFound());
     }
 
     private static String token(String secret, String issuer, Instant expiresAt) {
+        return token(secret, issuer, expiresAt, "acme");
+    }
+
+    private static String token(String secret, String issuer, Instant expiresAt, String tenantId) {
         var key = new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
         var encoder = new NimbusJwtEncoder(new ImmutableSecret<>(key));
-        JwtClaimsSet claims = JwtClaimsSet.builder()
+        JwtClaimsSet.Builder claims = JwtClaimsSet.builder()
                 .issuer(issuer)
                 .subject("alice")
                 .issuedAt(expiresAt.minus(Duration.ofHours(1)))
-                .expiresAt(expiresAt)
-                .build();
-        return encoder.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(), claims))
+                .expiresAt(expiresAt);
+        if (tenantId != null) {
+            claims.claim("tenant_id", tenantId);
+        }
+        return encoder.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(), claims.build()))
                 .getTokenValue();
     }
 }

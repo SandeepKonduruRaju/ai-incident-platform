@@ -13,6 +13,11 @@ import java.util.List;
 import java.util.UUID;
 import java.util.Optional;
 
+/**
+ * Every method is scoped to a tenant. The tenantId always comes from the caller's verified JWT
+ * (see TenantResolver), never from the request body, so one tenant can never read or change
+ * another tenant's incidents: such an incident simply looks "not found".
+ */
 @Service
 public class IncidentService {
 
@@ -22,9 +27,10 @@ public class IncidentService {
         this.incidentRepository = incidentRepository;
     }
 
-    public Incident create(CreateIncidentRequest request) {
+    public Incident create(String tenantId, CreateIncidentRequest request) {
         Incident incident = new Incident(
                 UUID.randomUUID(),
+                tenantId,
                 request.title(),
                 request.description(),
                 request.severity(),
@@ -38,19 +44,19 @@ public class IncidentService {
         return incidentRepository.save(incident);
     }
 
-    public Optional<Incident> findById(UUID id) {
-        return incidentRepository.findById(id);
+    public Optional<Incident> findById(String tenantId, UUID id) {
+        return incidentRepository.findByIdAndTenantId(id, tenantId);
     }
 
-    public List<Incident> findAll() {
-        return incidentRepository.findAll();
+    public List<Incident> findAll(String tenantId) {
+        return incidentRepository.findAllByTenantIdOrderByCreatedAtDesc(tenantId);
     }
 
     // Load -> change -> commit. The loaded entity is managed inside this transaction, so
     // Hibernate's dirty checking writes the new status on commit; no explicit save() needed.
     @Transactional
-    public Optional<Incident> updateStatus(UUID id, IncidentStatus status) {
-        return incidentRepository.findById(id)
+    public Optional<Incident> updateStatus(String tenantId, UUID id, IncidentStatus status) {
+        return incidentRepository.findByIdAndTenantId(id, tenantId)
                 .map(incident -> {
                     incident.changeStatus(status);
                     return incident;

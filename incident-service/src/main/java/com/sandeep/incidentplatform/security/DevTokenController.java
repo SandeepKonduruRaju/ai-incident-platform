@@ -41,6 +41,7 @@ public class DevTokenController {
         JwtClaimsSet claims = JwtClaimsSet.builder()
                 .issuer(properties.issuer())
                 .subject(request.subject())
+                .claim(TenantResolver.TENANT_CLAIM, request.tenantId())
                 .issuedAt(now)
                 .expiresAt(now.plus(properties.tokenTtl()))
                 .build();
@@ -49,7 +50,7 @@ public class DevTokenController {
         return new TokenResponse(token, "Bearer", properties.tokenTtl().toSeconds());
     }
 
-    public record TokenRequest(@NotBlank String subject) {
+    public record TokenRequest(@NotBlank String subject, @NotBlank String tenantId) {
     }
 
     public record TokenResponse(String accessToken, String tokenType, long expiresIn) {

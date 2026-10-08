@@ -17,6 +17,10 @@ public class Incident {
     @Id
     private UUID id;
 
+    // Owning organisation. Set once from the caller's JWT and never changed.
+    @Column(nullable = false, updatable = false)
+    private String tenantId;
+
     @Column(nullable = false)
     private String title;
 
@@ -46,10 +50,11 @@ public class Incident {
         // Required by JPA.
     }
 
-    public Incident(UUID id, String title, String description,
+    public Incident(UUID id, String tenantId, String title, String description,
                     IncidentSeverity severity, IncidentStatus status,
                     String affectedService, Instant createdAt) {
         this.id = id;
+        this.tenantId = tenantId;
         this.title = title;
         this.description = description;
         this.severity = severity;
@@ -60,6 +65,10 @@ public class Incident {
 
     public UUID id() {
         return id;
+    }
+
+    public String tenantId() {
+        return tenantId;
     }
 
     public String title() {

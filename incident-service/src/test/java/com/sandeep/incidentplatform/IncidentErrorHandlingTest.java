@@ -22,6 +22,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
+import static com.sandeep.incidentplatform.TestJwt.TENANT;
 import static com.sandeep.incidentplatform.TestJwt.asUser;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -88,7 +90,7 @@ class IncidentErrorHandlingTest {
     @Test
     void shouldReturnProblemWhenIncidentIsNotFound() throws Exception {
         UUID unknownId = UUID.randomUUID();
-        when(incidentService.findById(unknownId)).thenReturn(Optional.empty());
+        when(incidentService.findById(TENANT, unknownId)).thenReturn(Optional.empty());
 
         mockMvc.perform(get(BASE + "/{id}", unknownId).with(asUser()))
                 .andExpect(status().isNotFound())
@@ -100,7 +102,7 @@ class IncidentErrorHandlingTest {
     @Test
     void shouldReturn409WhenIncidentWasUpdatedConcurrently() throws Exception {
         UUID id = UUID.randomUUID();
-        when(incidentService.updateStatus(id, IncidentStatus.RESOLVED))
+        when(incidentService.updateStatus(TENANT, id, IncidentStatus.RESOLVED))
                 .thenThrow(new ObjectOptimisticLockingFailureException(Incident.class, id));
 
         mockMvc.perform(patch(BASE + "/{id}/status", id)
@@ -111,8 +113,15 @@ class IncidentErrorHandlingTest {
     }
 
     @Test
+    void shouldReturn403WhenTokenHasNoTenant() throws Exception {
+        mockMvc.perform(get(BASE).with(jwt().jwt(token -> token.subject("bob"))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.title").value("Missing tenant"));
+    }
+
+    @Test
     void shouldReturnGeneric500WithoutLeakingInternalDetails() throws Exception {
-        when(incidentService.findAll()).thenThrow(new IllegalStateException("db password is hunter2"));
+        when(incidentService.findAll(TENANT)).thenThrow(new IllegalStateException("db password is hunter2"));
 
         mockMvc.perform(get(BASE).with(asUser()))
                 .andExpect(status().isInternalServerError())
@@ -128,6 +137,6 @@ class IncidentErrorHandlingTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors.length()").value(3));
 
-        verify(incidentService, never()).create(any());
+        verify(incidentService, never()).create(any(), any());
     }
 }
