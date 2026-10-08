@@ -1,117 +1,134 @@
 package com.sandeep.incidentplatform;
 
 import com.sandeep.incidentplatform.controller.IncidentController;
-import com.sandeep.incidentplatform.dto.CreateIncidentRequest;
-import com.sandeep.incidentplatform.dto.IncidentResponse;
-import com.sandeep.incidentplatform.dto.UpdateIncidentStatusRequest;
+import com.sandeep.incidentplatform.model.Incident;
 import com.sandeep.incidentplatform.model.IncidentSeverity;
 import com.sandeep.incidentplatform.model.IncidentStatus;
 import com.sandeep.incidentplatform.service.IncidentService;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.http.MediaType;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.web.servlet.MockMvc;
+import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+// HTTP-level test of IncidentController: real Spring MVC (routing, JSON, status codes),
+// with IncidentService mocked so the test does not depend on how incidents are stored.
+@WebMvcTest(IncidentController.class)
 class IncidentControllerTest {
 
+    @Autowired
+    private MockMvc mockMvc;
+
+    @MockitoBean
+    private IncidentService incidentService;
+
     @Test
-    void shouldReturn200WithIncidentWhenIdExists() {
+    void shouldReturn200WithIncidentWhenIdExists() throws Exception {
         // Arrange
-        IncidentController controller = new IncidentController(new IncidentService());
-        IncidentResponse created = controller.createIncident(new CreateIncidentRequest(
-                "Payments failing",
-                "Customers cannot complete checkout",
-                IncidentSeverity.HIGH,
-                "payment-service"
-        ));
+        Incident incident = incident("Payments failing", IncidentStatus.OPEN);
+        when(incidentService.findById(incident.id())).thenReturn(Optional.of(incident));
 
-        // Act
-        ResponseEntity<IncidentResponse> response = controller.getIncident(created.id());
-
-        // Assert
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertEquals(created, response.getBody());
+        // Act + Assert
+        mockMvc.perform(get("/api/v1/incidents/{id}", incident.id()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(incident.id().toString()))
+                .andExpect(jsonPath("$.title").value("Payments failing"))
+                .andExpect(jsonPath("$.status").value("OPEN"));
     }
 
     @Test
-    void shouldReturn404WhenIdDoesNotExist() {
+    void shouldReturn404WhenIdDoesNotExist() throws Exception {
         // Arrange
-        IncidentController controller = new IncidentController(new IncidentService());
+        UUID unknownId = UUID.randomUUID();
+        when(incidentService.findById(unknownId)).thenReturn(Optional.empty());
 
-        // Act
-        ResponseEntity<IncidentResponse> response = controller.getIncident(UUID.randomUUID());
-
-        // Assert
-        assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
-        assertNull(response.getBody());
+        // Act + Assert
+        mockMvc.perform(get("/api/v1/incidents/{id}", unknownId))
+                .andExpect(status().isNotFound());
     }
 
     @Test
-    void shouldReturnAllIncidents() {
+    void shouldReturnAllIncidents() throws Exception {
         // Arrange
-        IncidentController controller = new IncidentController(new IncidentService());
-        IncidentResponse first = controller.createIncident(new CreateIncidentRequest(
-                "Payments failing",
-                "Customers cannot complete checkout",
-                IncidentSeverity.HIGH,
-                "payment-service"
-        ));
-        IncidentResponse second = controller.createIncident(new CreateIncidentRequest(
-                "Login errors",
-                "Users cannot sign in",
-                IncidentSeverity.MEDIUM,
-                "auth-service"
+        when(incidentService.findAll()).thenReturn(List.of(
+                incident("Payments failing", IncidentStatus.OPEN),
+                incident("Login errors", IncidentStatus.INVESTIGATING)
         ));
 
-        // Act
-        List<IncidentResponse> incidents = controller.listIncidents();
-
-        // Assert
-        assertEquals(2, incidents.size());
-        assertTrue(incidents.contains(first));
-        assertTrue(incidents.contains(second));
+        // Act + Assert
+        mockMvc.perform(get("/api/v1/incidents"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].title").value("Payments failing"))
+                .andExpect(jsonPath("$[1].title").value("Login errors"));
     }
 
     @Test
-    void shouldUpdateIncidentStatusWhenIdExists() {
+    void shouldUpdateIncidentStatusWhenIdExists() throws Exception {
         // Arrange
-        IncidentController controller = new IncidentController(new IncidentService());
-        IncidentResponse created = controller.createIncident(new CreateIncidentRequest(
-                "Payments failing",
-                "Customers cannot complete checkout",
-                IncidentSeverity.HIGH,
-                "payment-service"
-        ));
+        Incident updated = incident("Payments failing", IncidentStatus.INVESTIGATING);
+        when(incidentService.updateStatus(updated.id(), IncidentStatus.INVESTIGATING))
+                .thenReturn(Optional.of(updated));
 
-        // Act
-        ResponseEntity<IncidentResponse> response = controller.updateIncidentStatus(
-                created.id(),
-                new UpdateIncidentStatusRequest(IncidentStatus.INVESTIGATING)
-        );
-
-        // Assert
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertEquals(IncidentStatus.INVESTIGATING, response.getBody().status());
+        // Act + Assert
+        mockMvc.perform(patch("/api/v1/incidents/{id}/status", updated.id())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "status": "INVESTIGATING" }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("INVESTIGATING"));
     }
 
     @Test
-    void shouldReturn404WhenUpdatingMissingIncidentStatus() {
+    void shouldReturn404WhenUpdatingMissingIncidentStatus() throws Exception {
         // Arrange
-        IncidentController controller = new IncidentController(new IncidentService());
+        UUID unknownId = UUID.randomUUID();
+        when(incidentService.updateStatus(unknownId, IncidentStatus.RESOLVED)).thenReturn(Optional.empty());
 
-        // Act
-        ResponseEntity<IncidentResponse> response = controller.updateIncidentStatus(
+        // Act + Assert
+        mockMvc.perform(patch("/api/v1/incidents/{id}/status", unknownId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "status": "RESOLVED" }
+                                """))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void shouldReturn400WhenStatusIsMissing() throws Exception {
+        // Act + Assert
+        mockMvc.perform(patch("/api/v1/incidents/{id}/status", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest());
+
+        verify(incidentService, never()).updateStatus(any(), any());
+    }
+
+    private Incident incident(String title, IncidentStatus status) {
+        return new Incident(
                 UUID.randomUUID(),
-                new UpdateIncidentStatusRequest(IncidentStatus.RESOLVED)
+                title,
+                "Some description",
+                IncidentSeverity.HIGH,
+                status,
+                "payment-service",
+                Instant.now()
         );
-
-        // Assert
-        assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
-        assertNull(response.getBody());
     }
 }

@@ -64,7 +64,7 @@ public class IncidentController {
     @PatchMapping("/{id}/status")
     public ResponseEntity<IncidentResponse> updateIncidentStatus(
             @PathVariable UUID id,
-            @RequestBody UpdateIncidentStatusRequest request) {
+            @Valid @RequestBody UpdateIncidentStatusRequest request) {
 
         return incidentService.updateStatus(id, request.status())
                 .map(this::toResponse)
