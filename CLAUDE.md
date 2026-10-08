@@ -82,10 +82,16 @@ Verify the git root and remotes with `git rev-parse --show-toplevel` and `git re
   PostgreSQL mode, so tests need no DB and still run the real migrations.
   `CreateIncidentRequest` has `@Size` limits matching the column lengths.
 
+- Step I verified manually against local PostgreSQL (DB `incident_platform`, role
+  `incident_app`, created 2026-10-08): POST 201, GET 200/404, list, PATCH 200 (version 0 → 1),
+  blank title / missing status → 400, and the incident survives an app restart; Flyway reports
+  "up to date" on the second start.
+
 ### Not finished
-- Local DB `incident_platform` + role `incident_app` must be created once (Sandy, via psql).
-- Nothing yet proves real persistence end to end: unit tests mock the repository. Verified in
-  Step I (Postman against PostgreSQL) and later Testcontainers integration tests.
+- No automated test proves persistence end to end (unit tests mock the repository): add
+  Testcontainers integration tests (M1, block 4).
+- Minor: POST response `createdAt` has nanosecond precision, later GETs return microseconds
+  (PostgreSQL precision). Fix by truncating `Instant.now()` to micros.
 
 ### Current architecture
 HTTP → IncidentController → IncidentService → IncidentRepository (JpaRepository) → PostgreSQL
@@ -127,6 +133,6 @@ PostgreSQL in the app. Review my answers.
 | POST / GET by id / GET all / PATCH status | ✅ Done |
 | Request validation | ✅ Done (dependency, DTO annotations, `@Valid`) |
 | Validation tested (blank title → 400, MockMvc) | ✅ Done (`IncidentControllerValidationTest`) |
-| JPA persistence (Steps A–J) | 🔄 Step I next (A–H done) |
-| PostgreSQL running locally | 🔄 Installed + running; create DB/user |
+| JPA persistence (Steps A–J) | 🔄 Step J next: PR to main (A–I done) |
+| PostgreSQL running locally | ✅ Done (PostgreSQL 18, DB + role created, app verified) |
 | Authentication, tenant isolation, RBAC | ⬜ |
