@@ -8,6 +8,7 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 
 @Entity
 @Table(name = "incidents")
@@ -19,6 +20,7 @@ public class Incident {
     @Column(nullable = false)
     private String title;
 
+    @Column(length = 2000)
     private String description;
 
     @Enumerated(EnumType.STRING)
@@ -34,6 +36,11 @@ public class Incident {
 
     @Column(nullable = false)
     private Instant createdAt;
+
+    // Optimistic locking: concurrent updates to the same row fail instead of silently overwriting.
+    // Also lets Spring Data treat a null version as "new", so save() inserts without a SELECT first.
+    @Version
+    private Long version;
 
     protected Incident() {
         // Required by JPA.
@@ -77,6 +84,13 @@ public class Incident {
 
     public Instant createdAt() {
         return createdAt;
+    }
+
+    public void changeStatus(IncidentStatus newStatus) {
+        if (newStatus == null) {
+            throw new IllegalArgumentException("status must not be null");
+        }
+        this.status = newStatus;
     }
 
     @Override

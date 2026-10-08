@@ -1,63 +1,57 @@
 package com.sandeep.incidentplatform.service;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import com.sandeep.incidentplatform.dto.CreateIncidentRequest;
 import com.sandeep.incidentplatform.model.Incident;
 import com.sandeep.incidentplatform.model.IncidentStatus;
-
+import com.sandeep.incidentplatform.repository.IncidentRepository;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.Optional;
 
 @Service
 public class IncidentService {
 
-    private final Map<UUID, Incident> incidents = new ConcurrentHashMap<>();
+    private final IncidentRepository incidentRepository;
+
+    public IncidentService(IncidentRepository incidentRepository) {
+        this.incidentRepository = incidentRepository;
+    }
 
     public Incident create(CreateIncidentRequest request) {
         Incident incident = new Incident(
-                // generated ID,
                 UUID.randomUUID(),
-                // request title,
                 request.title(),
-                // request description,
                 request.description(),
-                // request severity,
                 request.severity(),
-                // initial status,
+                // every new incident starts OPEN
                 IncidentStatus.OPEN,
-                // request affected service,
                 request.affectedService(),
-                // current timestamp
                 Instant.now()
         );
 
-        incidents.put(incident.id(), incident);
-
-        return incident;
+        return incidentRepository.save(incident);
     }
 
     public Optional<Incident> findById(UUID id) {
-        return Optional.ofNullable(incidents.get(id));
+        return incidentRepository.findById(id);
     }
 
     public List<Incident> findAll() {
-        return List.copyOf(incidents.values());
+        return incidentRepository.findAll();
     }
 
+    // Load -> change -> commit. The loaded entity is managed inside this transaction, so
+    // Hibernate's dirty checking writes the new status on commit; no explicit save() needed.
+    @Transactional
     public Optional<Incident> updateStatus(UUID id, IncidentStatus status) {
-        return Optional.ofNullable(incidents.computeIfPresent(id, (ignored, existing) -> new Incident(
-                existing.id(),
-                existing.title(),
-                existing.description(),
-                existing.severity(),
-                status,
-                existing.affectedService(),
-                existing.createdAt()
-        )));
+        return incidentRepository.findById(id)
+                .map(incident -> {
+                    incident.changeStatus(status);
+                    return incident;
+                });
     }
 }
