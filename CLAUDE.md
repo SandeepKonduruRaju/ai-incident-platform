@@ -65,9 +65,9 @@ Verify the git root and remotes with `git rev-parse --show-toplevel` and `git re
 - `IncidentService` still stores incidents in its own `ConcurrentHashMap`; `IncidentRepository`
   is not used yet.
 - No datasource configured: tests pass (H2 on test classpath) but the app will not start.
-- Request validation is being ported (Step C). `spring-boot-starter-validation` is in the pom.
-  Still to do: `@NotBlank title`, `@NotNull severity`, `@NotBlank affectedService` on
-  `CreateIncidentRequest`, `@Valid` on the POST body, and a MockMvc test (blank title → 400).
+- Request validation is done (Step C): `@NotBlank title`, `@NotNull severity`,
+  `@NotBlank affectedService` on `CreateIncidentRequest`, `@Valid` on POST, proven by the
+  `@WebMvcTest` `IncidentControllerValidationTest` (blank title / missing severity → 400, valid → 201).
   The old nested copy (`incident-service\incident-service\`) has been deleted; its reference
   code is on `master` of the abandoned GitHub repo `incident-service`. There is now only ONE
   project: `incident-service\` directly under the git root.
@@ -109,8 +109,8 @@ PostgreSQL in the app. Review my answers.
 |---|---|
 | Git setup (ai-incident-platform, feature branch) | ✅ Done |
 | POST / GET by id / GET all / PATCH status | ✅ Done |
-| Request validation | 🔄 Step C: dependency ✅, annotate DTO |
-| Validation tested (blank title → 400, MockMvc) | ⬜ |
-| JPA persistence (Steps A–J) | 🔄 Step C (A, B done) |
+| Request validation | ✅ Done (dependency, DTO annotations, `@Valid`) |
+| Validation tested (blank title → 400, MockMvc) | ✅ Done (`IncidentControllerValidationTest`) |
+| JPA persistence (Steps A–J) | 🔄 Step D next (A, B, C done) |
 | PostgreSQL running locally | ⬜ |
 | Authentication, tenant isolation, RBAC | ⬜ |
