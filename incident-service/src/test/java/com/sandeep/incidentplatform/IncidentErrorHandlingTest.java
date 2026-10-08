@@ -11,6 +11,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import java.util.Optional;
@@ -114,7 +115,10 @@ class IncidentErrorHandlingTest {
 
     @Test
     void shouldReturn403WhenTokenHasNoTenant() throws Exception {
-        mockMvc.perform(get(BASE).with(jwt().jwt(token -> token.subject("bob"))))
+        // Has a valid role (passes RBAC) but no tenant_id claim
+        mockMvc.perform(get(BASE).with(jwt()
+                        .jwt(token -> token.subject("bob"))
+                        .authorities(new SimpleGrantedAuthority("ROLE_VIEWER"))))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.title").value("Missing tenant"));
     }

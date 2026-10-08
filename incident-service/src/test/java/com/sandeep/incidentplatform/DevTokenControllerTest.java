@@ -28,7 +28,7 @@ class DevTokenControllerTest {
     void shouldIssueTokenThatTheApiAccepts() throws Exception {
         String body = mockMvc.perform(post("/api/v1/dev/token")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{ \"subject\": \"alice\", \"tenantId\": \"acme\" }"))
+                        .content("{ \"subject\": \"alice\", \"tenantId\": \"acme\", \"roles\": [\"RESPONDER\"] }"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.tokenType").value("Bearer"))
                 .andExpect(jsonPath("$.expiresIn").value(3600))

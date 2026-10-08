@@ -4,7 +4,6 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
-import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -16,6 +15,8 @@ import org.springframework.security.oauth2.jwt.JwtClaimValidator;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
+import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
 import org.springframework.security.web.SecurityFilterChain;
 
 /**
@@ -27,19 +28,38 @@ import org.springframework.security.web.SecurityFilterChain;
 @EnableConfigurationProperties(JwtProperties.class)
 public class SecurityConfig {
 
+    public static final String ROLES_CLAIM = "roles";
+
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
                 // Stateless API authenticated by a bearer token, not a cookie, so CSRF does not apply.
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                // Authorization rules in one place (first match wins). No token -> 401; wrong role -> 403.
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/v1/health", "/error").permitAll()
                         // Only exists when the "dev" profile is active (see DevTokenController).
                         .requestMatchers(HttpMethod.POST, "/api/v1/dev/token").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/incidents", "/api/v1/incidents/*")
+                                .hasAnyRole(Role.VIEWER.name(), Role.RESPONDER.name(), Role.ADMIN.name())
+                        .requestMatchers(HttpMethod.POST, "/api/v1/incidents")
+                                .hasAnyRole(Role.RESPONDER.name(), Role.ADMIN.name())
+                        .requestMatchers(HttpMethod.PATCH, "/api/v1/incidents/*/status")
+                                .hasAnyRole(Role.RESPONDER.name(), Role.ADMIN.name())
                         .anyRequest().authenticated())
-                .oauth2ResourceServer(oauth2 -> oauth2.jwt(Customizer.withDefaults()));
+                .oauth2ResourceServer(oauth2 -> oauth2.jwt(jwt -> jwt.jwtAuthenticationConverter(rolesConverter())));
         return http.build();
+    }
+
+    // Maps the JWT "roles" claim (e.g. ["VIEWER"]) to authorities (ROLE_VIEWER).
+    private static JwtAuthenticationConverter rolesConverter() {
+        JwtGrantedAuthoritiesConverter authorities = new JwtGrantedAuthoritiesConverter();
+        authorities.setAuthoritiesClaimName(ROLES_CLAIM);
+        authorities.setAuthorityPrefix("ROLE_");
+        JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
+        converter.setJwtGrantedAuthoritiesConverter(authorities);
+        return converter;
     }
 
     @Bean

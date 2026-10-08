@@ -3,6 +3,7 @@ package com.sandeep.incidentplatform.security;
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
 import org.springframework.context.annotation.Profile;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.JwsHeader;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
+import java.util.List;
 
 /**
  * LOCAL DEVELOPMENT ONLY. Issues signed tokens so the API can be tried in Postman without an
@@ -42,6 +44,7 @@ public class DevTokenController {
                 .issuer(properties.issuer())
                 .subject(request.subject())
                 .claim(TenantResolver.TENANT_CLAIM, request.tenantId())
+                .claim(SecurityConfig.ROLES_CLAIM, request.roles().stream().map(Role::name).toList())
                 .issuedAt(now)
                 .expiresAt(now.plus(properties.tokenTtl()))
                 .build();
@@ -50,7 +53,7 @@ public class DevTokenController {
         return new TokenResponse(token, "Bearer", properties.tokenTtl().toSeconds());
     }
 
-    public record TokenRequest(@NotBlank String subject, @NotBlank String tenantId) {
+    public record TokenRequest(@NotBlank String subject, @NotBlank String tenantId, @NotEmpty List<Role> roles) {
     }
 
     public record TokenResponse(String accessToken, String tokenType, long expiresIn) {

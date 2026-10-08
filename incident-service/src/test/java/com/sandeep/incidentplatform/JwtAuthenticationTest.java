@@ -17,6 +17,7 @@ import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -94,8 +95,29 @@ class JwtAuthenticationTest {
     void shouldNotExposeDevTokenEndpointOutsideDevProfile() throws Exception {
         mockMvc.perform(post("/api/v1/dev/token")
                         .contentType("application/json")
-                        .content("{ \"subject\": \"alice\", \"tenantId\": \"acme\" }"))
+                        .content("{ \"subject\": \"alice\", \"tenantId\": \"acme\", \"roles\": [\"RESPONDER\"] }"))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void shouldMapRolesClaimSoViewerCanReadButNotCreate() throws Exception {
+        String viewer = token(SECRET, ISSUER, Instant.now().plus(Duration.ofMinutes(5)), "acme", List.of("VIEWER"));
+
+        mockMvc.perform(get("/api/v1/incidents").header(HttpHeaders.AUTHORIZATION, "Bearer " + viewer))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/incidents")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + viewer)
+                        .contentType("application/json")
+                        .content("{ \"title\": \"t\", \"severity\": \"LOW\", \"affectedService\": \"s\" }"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void shouldForbidValidTokenWithoutRoles() throws Exception {
+        String noRoles = token(SECRET, ISSUER, Instant.now().plus(Duration.ofMinutes(5)), "acme", List.of());
+
+        mockMvc.perform(get("/api/v1/incidents").header(HttpHeaders.AUTHORIZATION, "Bearer " + noRoles))
+                .andExpect(status().isForbidden());
     }
 
     private static String token(String secret, String issuer, Instant expiresAt) {
@@ -103,11 +125,16 @@ class JwtAuthenticationTest {
     }
 
     private static String token(String secret, String issuer, Instant expiresAt, String tenantId) {
+        return token(secret, issuer, expiresAt, tenantId, List.of("RESPONDER"));
+    }
+
+    private static String token(String secret, String issuer, Instant expiresAt, String tenantId, List<String> roles) {
         var key = new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
         var encoder = new NimbusJwtEncoder(new ImmutableSecret<>(key));
         JwtClaimsSet.Builder claims = JwtClaimsSet.builder()
                 .issuer(issuer)
                 .subject("alice")
+                .claim("roles", roles)
                 .issuedAt(expiresAt.minus(Duration.ofHours(1)))
                 .expiresAt(expiresAt);
         if (tenantId != null) {
