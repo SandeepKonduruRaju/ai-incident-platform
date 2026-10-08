@@ -8,6 +8,7 @@ import com.sandeep.incidentplatform.model.IncidentStatus;
 import com.sandeep.incidentplatform.repository.IncidentRepository;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
 import java.util.Optional;
@@ -30,7 +31,8 @@ public class IncidentService {
                 // every new incident starts OPEN
                 IncidentStatus.OPEN,
                 request.affectedService(),
-                Instant.now()
+                // PostgreSQL stores microseconds; truncate so the POST response matches later GETs
+                Instant.now().truncatedTo(ChronoUnit.MICROS)
         );
 
         return incidentRepository.save(incident);

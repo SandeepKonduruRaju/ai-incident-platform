@@ -3,6 +3,7 @@ package com.sandeep.incidentplatform.controller;
 import com.sandeep.incidentplatform.dto.CreateIncidentRequest;
 import com.sandeep.incidentplatform.dto.IncidentResponse;
 import com.sandeep.incidentplatform.dto.UpdateIncidentStatusRequest;
+import com.sandeep.incidentplatform.exception.IncidentNotFoundException;
 import com.sandeep.incidentplatform.model.Incident;
 import com.sandeep.incidentplatform.service.IncidentService;
 import jakarta.validation.Valid;
@@ -13,11 +14,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
 @RestController
@@ -48,28 +47,22 @@ public class IncidentController {
                 .toList();
     }
 
+    // An empty Optional becomes IncidentNotFoundException; GlobalExceptionHandler turns it into a 404 body.
     @GetMapping("/{id}")
-    public ResponseEntity<IncidentResponse> getIncident(@PathVariable UUID id) {
-        Optional<Incident> found = incidentService.findById(id);
-
-        if (found.isEmpty()) {
-            return ResponseEntity.notFound().build();
-        }
-
-        Incident incident = found.get();
-
-        return ResponseEntity.ok(toResponse(incident));
+    public IncidentResponse getIncident(@PathVariable UUID id) {
+        return incidentService.findById(id)
+                .map(this::toResponse)
+                .orElseThrow(() -> new IncidentNotFoundException(id));
     }
 
     @PatchMapping("/{id}/status")
-    public ResponseEntity<IncidentResponse> updateIncidentStatus(
+    public IncidentResponse updateIncidentStatus(
             @PathVariable UUID id,
             @Valid @RequestBody UpdateIncidentStatusRequest request) {
 
         return incidentService.updateStatus(id, request.status())
                 .map(this::toResponse)
-                .map(ResponseEntity::ok)
-                .orElseGet(() -> ResponseEntity.notFound().build());
+                .orElseThrow(() -> new IncidentNotFoundException(id));
     }
 
     private IncidentResponse toResponse(Incident incident) {

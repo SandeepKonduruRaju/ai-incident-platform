@@ -1,0 +1,129 @@
+package com.sandeep.incidentplatform;
+
+import com.sandeep.incidentplatform.controller.IncidentController;
+import com.sandeep.incidentplatform.model.Incident;
+import com.sandeep.incidentplatform.model.IncidentStatus;
+import com.sandeep.incidentplatform.service.IncidentService;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.http.MediaType;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.web.servlet.MockMvc;
+import java.util.Optional;
+import java.util.UUID;
+
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+// Every error response must be an RFC 9457 Problem Details body with the right status code.
+@WebMvcTest(IncidentController.class)
+class IncidentErrorHandlingTest {
+
+    private static final String BASE = "/api/v1/incidents";
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @MockitoBean
+    private IncidentService incidentService;
+
+    @Test
+    void shouldReturnProblemWithFieldErrorsWhenValidationFails() throws Exception {
+        mockMvc.perform(post(BASE)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "title": "", "severity": "HIGH", "affectedService": "payment-service" }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.title").value("Validation failed"))
+                .andExpect(jsonPath("$.errors[0].field").value("title"))
+                .andExpect(jsonPath("$.errors[0].message").value("must not be blank"));
+    }
+
+    @Test
+    void shouldReturn400WhenJsonIsMalformed() throws Exception {
+        mockMvc.perform(post(BASE)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{ \"title\": "))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON));
+    }
+
+    @Test
+    void shouldReturn400WhenSeverityIsNotAKnownValue() throws Exception {
+        mockMvc.perform(post(BASE)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "title": "Payments failing", "severity": "APOCALYPTIC", "affectedService": "payment-service" }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON));
+    }
+
+    @Test
+    void shouldReturn400WhenIdIsNotAUuid() throws Exception {
+        mockMvc.perform(get(BASE + "/not-a-uuid"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON));
+    }
+
+    @Test
+    void shouldReturnProblemWhenIncidentIsNotFound() throws Exception {
+        UUID unknownId = UUID.randomUUID();
+        when(incidentService.findById(unknownId)).thenReturn(Optional.empty());
+
+        mockMvc.perform(get(BASE + "/{id}", unknownId))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.title").value("Incident not found"))
+                .andExpect(jsonPath("$.detail").value(containsString(unknownId.toString())));
+    }
+
+    @Test
+    void shouldReturn409WhenIncidentWasUpdatedConcurrently() throws Exception {
+        UUID id = UUID.randomUUID();
+        when(incidentService.updateStatus(id, IncidentStatus.RESOLVED))
+                .thenThrow(new ObjectOptimisticLockingFailureException(Incident.class, id));
+
+        mockMvc.perform(patch(BASE + "/{id}/status", id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{ \"status\": \"RESOLVED\" }"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.title").value("Concurrent update"));
+    }
+
+    @Test
+    void shouldReturnGeneric500WithoutLeakingInternalDetails() throws Exception {
+        when(incidentService.findAll()).thenThrow(new IllegalStateException("db password is hunter2"));
+
+        mockMvc.perform(get(BASE))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.detail").value("An unexpected error occurred."))
+                .andExpect(content().string(not(containsString("hunter2"))));
+    }
+
+    @Test
+    void shouldNotCallServiceWhenRequestIsInvalid() throws Exception {
+        mockMvc.perform(post(BASE)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.length()").value(3));
+
+        verify(incidentService, never()).create(any());
+    }
+}

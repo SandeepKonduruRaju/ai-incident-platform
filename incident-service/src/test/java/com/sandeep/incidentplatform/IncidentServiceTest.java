@@ -55,6 +55,7 @@ class IncidentServiceTest {
         // Assert
         assertNotNull(incident.id());
         assertNotNull(incident.createdAt());
+        assertEquals(0, incident.createdAt().getNano() % 1_000, "createdAt is truncated to microseconds");
         assertEquals(IncidentStatus.OPEN, incident.status());
         assertEquals(request.title(), incident.title());
         assertEquals(request.description(), incident.description());
