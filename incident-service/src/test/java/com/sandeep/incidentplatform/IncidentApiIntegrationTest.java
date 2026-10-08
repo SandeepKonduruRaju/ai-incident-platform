@@ -24,6 +24,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static com.sandeep.incidentplatform.TestJwt.asUser;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -67,21 +68,21 @@ class IncidentApiIntegrationTest {
                                   "severity": "HIGH",
                                   "affectedService": "payment-service"
                                 }
-                                """))
+                                """).with(asUser()))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("OPEN"))
                 .andReturn();
         String id = JsonPath.read(created.getResponse().getContentAsString(), "$.id");
 
         // Read back
-        mockMvc.perform(get("/api/v1/incidents/{id}", id))
+        mockMvc.perform(get("/api/v1/incidents/{id}", id).with(asUser()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.title").value("Payments failing"));
 
         // Update status (dirty checking inside @Transactional)
         mockMvc.perform(patch("/api/v1/incidents/{id}/status", id)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{ \"status\": \"MITIGATED\" }"))
+                        .content("{ \"status\": \"MITIGATED\" }").with(asUser()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("MITIGATED"));
 
@@ -89,7 +90,7 @@ class IncidentApiIntegrationTest {
         Incident stored = incidentRepository.findById(UUID.fromString(id)).orElseThrow();
         assertEquals(IncidentStatus.MITIGATED, stored.status());
 
-        mockMvc.perform(get("/api/v1/incidents"))
+        mockMvc.perform(get("/api/v1/incidents").with(asUser()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1));
     }
@@ -98,7 +99,7 @@ class IncidentApiIntegrationTest {
     void shouldNotStoreAnythingWhenRequestIsInvalid() throws Exception {
         mockMvc.perform(post("/api/v1/incidents")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{ \"title\": \"\" }"))
+                        .content("{ \"title\": \"\" }").with(asUser()))
                 .andExpect(status().isBadRequest());
 
         assertEquals(0, incidentRepository.count());

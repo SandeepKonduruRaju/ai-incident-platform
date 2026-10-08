@@ -4,9 +4,11 @@ import com.sandeep.incidentplatform.controller.IncidentController;
 import com.sandeep.incidentplatform.model.Incident;
 import com.sandeep.incidentplatform.model.IncidentStatus;
 import com.sandeep.incidentplatform.service.IncidentService;
+import com.sandeep.incidentplatform.security.SecurityConfig;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -20,6 +22,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static com.sandeep.incidentplatform.TestJwt.asUser;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -29,6 +32,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 // Every error response must be an RFC 9457 Problem Details body with the right status code.
 @WebMvcTest(IncidentController.class)
+@Import(SecurityConfig.class)
 class IncidentErrorHandlingTest {
 
     private static final String BASE = "/api/v1/incidents";
@@ -45,7 +49,7 @@ class IncidentErrorHandlingTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 { "title": "", "severity": "HIGH", "affectedService": "payment-service" }
-                                """))
+                                """).with(asUser()))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.status").value(400))
@@ -58,7 +62,7 @@ class IncidentErrorHandlingTest {
     void shouldReturn400WhenJsonIsMalformed() throws Exception {
         mockMvc.perform(post(BASE)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{ \"title\": "))
+                        .content("{ \"title\": ").with(asUser()))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON));
     }
@@ -69,14 +73,14 @@ class IncidentErrorHandlingTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 { "title": "Payments failing", "severity": "APOCALYPTIC", "affectedService": "payment-service" }
-                                """))
+                                """).with(asUser()))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON));
     }
 
     @Test
     void shouldReturn400WhenIdIsNotAUuid() throws Exception {
-        mockMvc.perform(get(BASE + "/not-a-uuid"))
+        mockMvc.perform(get(BASE + "/not-a-uuid").with(asUser()))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON));
     }
@@ -86,7 +90,7 @@ class IncidentErrorHandlingTest {
         UUID unknownId = UUID.randomUUID();
         when(incidentService.findById(unknownId)).thenReturn(Optional.empty());
 
-        mockMvc.perform(get(BASE + "/{id}", unknownId))
+        mockMvc.perform(get(BASE + "/{id}", unknownId).with(asUser()))
                 .andExpect(status().isNotFound())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.title").value("Incident not found"))
@@ -101,7 +105,7 @@ class IncidentErrorHandlingTest {
 
         mockMvc.perform(patch(BASE + "/{id}/status", id)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{ \"status\": \"RESOLVED\" }"))
+                        .content("{ \"status\": \"RESOLVED\" }").with(asUser()))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.title").value("Concurrent update"));
     }
@@ -110,7 +114,7 @@ class IncidentErrorHandlingTest {
     void shouldReturnGeneric500WithoutLeakingInternalDetails() throws Exception {
         when(incidentService.findAll()).thenThrow(new IllegalStateException("db password is hunter2"));
 
-        mockMvc.perform(get(BASE))
+        mockMvc.perform(get(BASE).with(asUser()))
                 .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.detail").value("An unexpected error occurred."))
                 .andExpect(content().string(not(containsString("hunter2"))));
@@ -120,7 +124,7 @@ class IncidentErrorHandlingTest {
     void shouldNotCallServiceWhenRequestIsInvalid() throws Exception {
         mockMvc.perform(post(BASE)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{}"))
+                        .content("{}").with(asUser()))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors.length()").value(3));
 

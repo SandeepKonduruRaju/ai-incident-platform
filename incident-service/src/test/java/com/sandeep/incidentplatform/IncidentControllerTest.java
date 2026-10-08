@@ -5,9 +5,11 @@ import com.sandeep.incidentplatform.model.Incident;
 import com.sandeep.incidentplatform.model.IncidentSeverity;
 import com.sandeep.incidentplatform.model.IncidentStatus;
 import com.sandeep.incidentplatform.service.IncidentService;
+import com.sandeep.incidentplatform.security.SecurityConfig;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -20,6 +22,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static com.sandeep.incidentplatform.TestJwt.asUser;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -28,6 +31,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 // HTTP-level test of IncidentController: real Spring MVC (routing, JSON, status codes),
 // with IncidentService mocked so the test does not depend on how incidents are stored.
 @WebMvcTest(IncidentController.class)
+@Import(SecurityConfig.class)
 class IncidentControllerTest {
 
     @Autowired
@@ -43,7 +47,7 @@ class IncidentControllerTest {
         when(incidentService.findById(incident.id())).thenReturn(Optional.of(incident));
 
         // Act + Assert
-        mockMvc.perform(get("/api/v1/incidents/{id}", incident.id()))
+        mockMvc.perform(get("/api/v1/incidents/{id}", incident.id()).with(asUser()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(incident.id().toString()))
                 .andExpect(jsonPath("$.title").value("Payments failing"))
@@ -57,7 +61,7 @@ class IncidentControllerTest {
         when(incidentService.findById(unknownId)).thenReturn(Optional.empty());
 
         // Act + Assert
-        mockMvc.perform(get("/api/v1/incidents/{id}", unknownId))
+        mockMvc.perform(get("/api/v1/incidents/{id}", unknownId).with(asUser()))
                 .andExpect(status().isNotFound());
     }
 
@@ -70,7 +74,7 @@ class IncidentControllerTest {
         ));
 
         // Act + Assert
-        mockMvc.perform(get("/api/v1/incidents"))
+        mockMvc.perform(get("/api/v1/incidents").with(asUser()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(2))
                 .andExpect(jsonPath("$[0].title").value("Payments failing"))
@@ -89,7 +93,7 @@ class IncidentControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 { "status": "INVESTIGATING" }
-                                """))
+                                """).with(asUser()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("INVESTIGATING"));
     }
@@ -105,7 +109,7 @@ class IncidentControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 { "status": "RESOLVED" }
-                                """))
+                                """).with(asUser()))
                 .andExpect(status().isNotFound());
     }
 
@@ -114,7 +118,7 @@ class IncidentControllerTest {
         // Act + Assert
         mockMvc.perform(patch("/api/v1/incidents/{id}/status", UUID.randomUUID())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{}"))
+                        .content("{}").with(asUser()))
                 .andExpect(status().isBadRequest());
 
         verify(incidentService, never()).updateStatus(any(), any());

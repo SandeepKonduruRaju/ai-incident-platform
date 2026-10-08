@@ -5,9 +5,11 @@ import com.sandeep.incidentplatform.model.Incident;
 import com.sandeep.incidentplatform.model.IncidentSeverity;
 import com.sandeep.incidentplatform.model.IncidentStatus;
 import com.sandeep.incidentplatform.service.IncidentService;
+import com.sandeep.incidentplatform.security.SecurityConfig;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -18,11 +20,13 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static com.sandeep.incidentplatform.TestJwt.asUser;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 // HTTP-level test: requests go through Spring MVC, so @Valid and @ResponseStatus are applied.
 @WebMvcTest(IncidentController.class)
+@Import(SecurityConfig.class)
 class IncidentControllerValidationTest {
 
     @Autowired
@@ -43,7 +47,7 @@ class IncidentControllerValidationTest {
                                   "severity": "HIGH",
                                   "affectedService": "payment-service"
                                 }
-                                """))
+                                """).with(asUser()))
                 .andExpect(status().isBadRequest());
 
         verify(incidentService, never()).create(any());
@@ -59,7 +63,7 @@ class IncidentControllerValidationTest {
                                   "title": "Payments failing",
                                   "affectedService": "payment-service"
                                 }
-                                """))
+                                """).with(asUser()))
                 .andExpect(status().isBadRequest());
 
         verify(incidentService, never()).create(any());
@@ -88,7 +92,7 @@ class IncidentControllerValidationTest {
                                   "severity": "HIGH",
                                   "affectedService": "payment-service"
                                 }
-                                """))
+                                """).with(asUser()))
                 .andExpect(status().isCreated());
     }
 }
