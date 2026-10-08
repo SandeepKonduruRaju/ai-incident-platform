@@ -20,6 +20,7 @@ public class Incident {
     @Column(nullable = false)
     private String title;
 
+    @Column(length = 2000)
     private String description;
 
     @Enumerated(EnumType.STRING)

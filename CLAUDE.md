@@ -74,14 +74,22 @@ Verify the git root and remotes with `git rev-parse --show-toplevel` and `git re
 - The old nested copy (`incident-service\incident-service\`) has been deleted; its reference
   code is on `master` of the abandoned GitHub repo `incident-service`.
 
+- Steps G–H. `application.properties` points at local PostgreSQL 18 (Windows service
+  `postgresql-x64-18`, port 5432): `DB_URL` (default `jdbc:postgresql://localhost:5432/incident_platform`),
+  `DB_USERNAME` (default `incident_app`), `DB_PASSWORD` (env var only, no default → fail fast).
+  Flyway owns the schema (`db/migration/V1__create_incidents_table.sql`), `ddl-auto=validate`,
+  `open-in-view=false`. `src/test/resources/application.properties` shadows it with H2 in
+  PostgreSQL mode, so tests need no DB and still run the real migrations.
+  `CreateIncidentRequest` has `@Size` limits matching the column lengths.
+
 ### Not finished
-- No datasource configured: tests pass (H2 on test classpath) but the app will not start (Step G).
-- No schema management yet: Hibernate auto-creates tables in H2 only (Step H: Flyway).
+- Local DB `incident_platform` + role `incident_app` must be created once (Sandy, via psql).
 - Nothing yet proves real persistence end to end: unit tests mock the repository. Verified in
   Step I (Postman against PostgreSQL) and later Testcontainers integration tests.
 
 ### Current architecture
-HTTP → IncidentController → IncidentService → IncidentRepository (JpaRepository) → (no DB yet; H2 in tests)
+HTTP → IncidentController → IncidentService → IncidentRepository (JpaRepository) → PostgreSQL
+(schema by Flyway; H2 in PostgreSQL mode in tests)
 
 ### Next: finish JPA persistence (decision: keep Day4, finish it)
 Target: HTTP → Controller → IncidentService → IncidentRepository (JpaRepository) → PostgreSQL.
@@ -119,6 +127,6 @@ PostgreSQL in the app. Review my answers.
 | POST / GET by id / GET all / PATCH status | ✅ Done |
 | Request validation | ✅ Done (dependency, DTO annotations, `@Valid`) |
 | Validation tested (blank title → 400, MockMvc) | ✅ Done (`IncidentControllerValidationTest`) |
-| JPA persistence (Steps A–J) | 🔄 Step G next (A–F done) |
-| PostgreSQL running locally | ⬜ |
+| JPA persistence (Steps A–J) | 🔄 Step I next (A–H done) |
+| PostgreSQL running locally | 🔄 Installed + running; create DB/user |
 | Authentication, tenant isolation, RBAC | ⬜ |
