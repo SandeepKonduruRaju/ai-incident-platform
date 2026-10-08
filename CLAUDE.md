@@ -31,6 +31,11 @@ I work on Windows: VS Code, PowerShell, Git, GitHub, Postman.
   Optional vs null (Optional is an empty box that forces a check, it doesn't "send null"),
   PATCH vs PUT, request flow (Controller vs constructor).
 - Keep ONE status table, update it in place, and keep its format the same.
+- **Depth: core vs supporting.** Go deep (steps 2–4 in full) only on core topics interviewers
+  dig into (transactions, JPA load→modify→save, H2 vs PostgreSQL, Flyway, validation → 400,
+  error handling, idempotency, Kafka, RAG, LangGraph). For supporting topics (Maven/version
+  management, config syntax, annotation lists, boilerplate) keep it light: 2–3 lines plus a
+  one-sentence interview answer, no check question. Full revision happens in M4 interview prep.
 
 ## Project
 Java 17, Spring Boot 4.1.1, Maven. Package: `com.sandeep.incidentplatform`.
@@ -50,7 +55,9 @@ Verify the git root and remotes with `git rev-parse --show-toplevel` and `git re
 - `GET /api/v1/incidents/{id}` → 200 / 404
 - `GET /api/v1/incidents` → list
 - `PATCH /api/v1/incidents/{id}/status` → 200 / 404 (`UpdateIncidentStatusRequest`)
-- Tests: `IncidentServiceTest` (unit), `IncidentControllerTest` (HTTP level), health, context load
+- Tests: `IncidentServiceTest` (unit), `IncidentControllerTest` (plain unit test that calls
+  controller methods directly, NOT MockMvc, so `@ResponseStatus(201)` is untested), health,
+  context load
 - "Day4" JPA start: `Incident` is an `@Entity` (`incidents` table), `IncidentRepository extends
   JpaRepository<Incident, UUID>`, pom has data-jpa, postgresql (runtime), h2 (test).
 
@@ -58,10 +65,12 @@ Verify the git root and remotes with `git rev-parse --show-toplevel` and `git re
 - `IncidentService` still stores incidents in its own `ConcurrentHashMap`; `IncidentRepository`
   is not used yet.
 - No datasource configured: tests pass (H2 on test classpath) but the app will not start.
-- Request validation is NOT on `main`. It exists only in the old copy at
-  `incident-service\incident-service\` (`spring-boot-starter-validation`, `@NotBlank title`,
-  `@NotNull severity`, `@NotBlank affectedService`, `@Valid` on POST). Sandy re-applies it.
-  Delete that old folder once validation is ported.
+- Request validation is being ported (Step C). `spring-boot-starter-validation` is in the pom.
+  Still to do: `@NotBlank title`, `@NotNull severity`, `@NotBlank affectedService` on
+  `CreateIncidentRequest`, `@Valid` on the POST body, and a MockMvc test (blank title → 400).
+  The old nested copy (`incident-service\incident-service\`) has been deleted; its reference
+  code is on `master` of the abandoned GitHub repo `incident-service`. There is now only ONE
+  project: `incident-service\` directly under the git root.
 
 ### Current architecture
 HTTP → IncidentController → IncidentService → ConcurrentHashMap (JpaRepository unused)
@@ -100,8 +109,8 @@ PostgreSQL in the app. Review my answers.
 |---|---|
 | Git setup (ai-incident-platform, feature branch) | ✅ Done |
 | POST / GET by id / GET all / PATCH status | ✅ Done |
-| Request validation | ⬜ Port from old copy to main |
+| Request validation | 🔄 Step C: dependency ✅, annotate DTO |
 | Validation tested (blank title → 400, MockMvc) | ⬜ |
-| JPA persistence (Steps A–J) | 🔄 Step A |
+| JPA persistence (Steps A–J) | 🔄 Step C (A, B done) |
 | PostgreSQL running locally | ⬜ |
 | Authentication, tenant isolation, RBAC | ⬜ |
