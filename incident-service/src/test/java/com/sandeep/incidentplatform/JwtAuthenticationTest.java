@@ -42,7 +42,9 @@ class JwtAuthenticationTest {
     void shouldReturn401WithoutToken() throws Exception {
         mockMvc.perform(get("/api/v1/incidents"))
                 .andExpect(status().isUnauthorized())
-                .andExpect(header().exists(HttpHeaders.WWW_AUTHENTICATE));
+                .andExpect(header().exists(HttpHeaders.WWW_AUTHENTICATE))
+                // RequestIdFilter runs before security, so even rejected requests are traceable
+                .andExpect(header().exists("X-Request-Id"));
     }
 
     @Test

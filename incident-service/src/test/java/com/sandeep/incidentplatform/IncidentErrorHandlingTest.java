@@ -127,9 +127,11 @@ class IncidentErrorHandlingTest {
     void shouldReturnGeneric500WithoutLeakingInternalDetails() throws Exception {
         when(incidentService.findAll(TENANT, 0, 20)).thenThrow(new IllegalStateException("db password is hunter2"));
 
-        mockMvc.perform(get(BASE).with(asUser()))
+        mockMvc.perform(get(BASE).header("X-Request-Id", "req-500-test").with(asUser()))
                 .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.detail").value("An unexpected error occurred."))
+                // The client can quote this id; the server log lines carry the same id
+                .andExpect(jsonPath("$.requestId").value("req-500-test"))
                 .andExpect(content().string(not(containsString("hunter2"))));
     }
 

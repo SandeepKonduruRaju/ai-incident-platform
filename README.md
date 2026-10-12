@@ -76,6 +76,13 @@ Every error is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) Problem Det
 | 409 | Concurrent update detected by optimistic locking (`@Version`) |
 | 500 | Unexpected error (logged server-side; no internal details returned) |
 
+### Request IDs
+
+Every response has an `X-Request-Id` header (the caller's own id if it is short and safe,
+otherwise a generated UUID). Every log line written while handling the request includes it
+(`[requestId=…]`), and 500 responses return it in the body, so a reported error can be traced to
+its exact log lines.
+
 ## Security model
 
 - **Authentication**: the service is an OAuth2 resource server. It validates HS256-signed JWTs
@@ -147,6 +154,7 @@ cd incident-service
 | Unit | `IncidentServiceTest` | Business logic with a mocked repository (no Spring, no DB) |
 | Web slice | `IncidentControllerTest`, `IncidentControllerValidationTest`, `IncidentErrorHandlingTest`, `RoleBasedAccessTest` | HTTP status codes, JSON, validation, error bodies, role rules (`@WebMvcTest`, mocked service) |
 | Security | `JwtAuthenticationTest`, `DevTokenControllerTest` | Real signed tokens: valid / expired / wrong key / wrong issuer / no tenant / roles |
+| Filter | `RequestIdFilterTest` | Request id generated / reused / sanitised, cleared after each request |
 | Integration | `IncidentApiIntegrationTest` | Full stack on real PostgreSQL in Docker (Testcontainers): persistence, optimistic locking, tenant isolation |
 
 Integration tests are skipped automatically when Docker is not running. Other tests use in-memory
@@ -160,6 +168,7 @@ incident-service/src/main/java/com/sandeep/incidentplatform/
   dto/          request/response records with validation
   exception/    GlobalExceptionHandler, IncidentNotFoundException
   model/        Incident (JPA entity), IncidentSeverity, IncidentStatus
+  observability/ RequestIdFilter
   repository/   IncidentRepository (Spring Data JPA)
   security/     SecurityConfig, JwtProperties, Role, TenantResolver, DevTokenController
   service/      IncidentService

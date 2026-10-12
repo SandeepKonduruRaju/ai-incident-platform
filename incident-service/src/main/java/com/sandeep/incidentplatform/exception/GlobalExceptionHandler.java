@@ -1,8 +1,10 @@
 package com.sandeep.incidentplatform.exception;
 
+import com.sandeep.incidentplatform.observability.RequestIdFilter;
 import com.sandeep.incidentplatform.security.MissingTenantException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -77,6 +79,8 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.INTERNAL_SERVER_ERROR,
                 "An unexpected error occurred.");
         problem.setTitle("Internal server error");
+        // Lets a user quote the id so the matching server log lines can be found.
+        problem.setProperty("requestId", MDC.get(RequestIdFilter.MDC_KEY));
         return problem;
     }
 }

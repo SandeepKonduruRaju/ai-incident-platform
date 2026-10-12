@@ -272,6 +272,66 @@ each? Where do roles come from in production?
 
 ---
 
+## 11. Pagination
+
+**Files:** `controller/IncidentController.listIncidents`, `dto/PageResponse.java`,
+`repository/IncidentRepository.findAllByTenantId`, `service/IncidentService.findAll`
+
+- `GET /api/v1/incidents?page=0&size=20` returns `{ items, page, size, totalElements, totalPages }`.
+- **Why:** without it, one request loads every row: slow responses, high memory, and an easy
+  denial-of-service. `size` is capped at 100; `@Min`/`@Max` on the `@RequestParam`s are checked by
+  Spring MVC's method validation, so bad values are a 400 before the service runs.
+- **`Pageable`** makes Spring Data add `ORDER BY … LIMIT … OFFSET …`; returning `Page` also runs a
+  `COUNT(*)` for the totals.
+- **Stable order:** sort by `createdAt DESC`, then `id`. Without a unique tie-breaker, rows with the
+  same timestamp can appear on two pages or on none.
+- **Own `PageResponse` record:** Spring's `Page` JSON is an internal structure that can change
+  between versions; the API contract should be ours.
+- **Offset vs cursor (keyset) pagination:** offset is simple and allows "jump to page 7", but deep
+  pages get slower (the DB still walks the skipped rows) and inserts shift results between requests.
+  Cursor pagination (`WHERE (created_at, id) < (:lastCreatedAt, :lastId) LIMIT 20`) is fast at any
+  depth and stable, but only supports next/previous. Feeds and large tables use cursors.
+- The `(tenant_id, created_at DESC)` index from V2 serves exactly this query.
+
+**Questions:** Why cap the page size? Why the `id` tie-breaker? When would you switch to cursor
+pagination?
+
+> **Interview answer:** "The list endpoint is offset-paginated with a capped page size, a stable
+> sort with a unique tie-breaker, and an index matching the query. For very large or fast-changing
+> data I'd move to keyset pagination."
+
+---
+
+## 12. Request IDs in logs (observability basics)
+
+**Files:** `observability/RequestIdFilter.java`, `application.properties` (`logging.pattern.level`),
+`GlobalExceptionHandler.handleUnexpected`, `RequestIdFilterTest.java`
+
+- A servlet filter (`OncePerRequestFilter`) runs **first** (`@Order(HIGHEST_PRECEDENCE)`, before
+  Spring Security, so even a 401 carries the id).
+- It reuses the caller's `X-Request-Id` if it matches `[A-Za-z0-9._-]{1,64}`, otherwise generates a
+  UUID. **Why validate:** a header containing a newline could write fake lines into the logs (log
+  injection).
+- **MDC (Mapped Diagnostic Context):** a per-thread map the logger reads; `%X{requestId}` in the
+  log pattern prints it on every line of that request. The `finally { MDC.remove(...) }` matters:
+  server threads are reused, so a leftover id would mislabel the next request's logs.
+- The id goes back in the response header and in 500 bodies, so a user can report it.
+- **Where this leads:** with several services you propagate the id (or a W3C `traceparent`) on
+  outgoing calls and Kafka messages; tools like OpenTelemetry/Micrometer Tracing do this
+  automatically as distributed tracing (M4).
+- **Async caveat:** MDC is thread-local; work handed to another thread (`@Async`, executors) must
+  copy it explicitly.
+
+**Questions:** What is MDC and why must it be cleared? Why accept an incoming id at all? How does
+this differ from distributed tracing?
+
+> **Interview answer:** "Each request gets a correlation id in a filter that runs before security.
+> It's stored in the logging MDC so every log line carries it, returned to the client, and
+> included in 500 responses, so a support ticket maps straight to the logs. Incoming ids are
+> validated to prevent log injection."
+
+---
+
 ## Mock "tell me about the project" (60 seconds)
 
 "It's a multi-tenant incident management backend in Spring Boot and PostgreSQL, the foundation of an
