@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -48,7 +49,7 @@ class RoleBasedAccessTest {
     @Test
     void viewerCanListAndReadIncidents() throws Exception {
         Incident incident = incident();
-        when(incidentService.findAll(TENANT)).thenReturn(List.of(incident));
+        when(incidentService.findAll(TENANT, 0, 20)).thenReturn(new PageImpl<>(List.of(incident)));
         when(incidentService.findById(TENANT, incident.id())).thenReturn(Optional.of(incident));
 
         mockMvc.perform(get("/api/v1/incidents").with(as(TENANT, Role.VIEWER)))

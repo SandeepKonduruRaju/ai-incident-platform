@@ -2,11 +2,14 @@ package com.sandeep.incidentplatform.controller;
 
 import com.sandeep.incidentplatform.dto.CreateIncidentRequest;
 import com.sandeep.incidentplatform.dto.IncidentResponse;
+import com.sandeep.incidentplatform.dto.PageResponse;
 import com.sandeep.incidentplatform.dto.UpdateIncidentStatusRequest;
 import com.sandeep.incidentplatform.exception.IncidentNotFoundException;
 import com.sandeep.incidentplatform.model.Incident;
 import com.sandeep.incidentplatform.service.IncidentService;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -14,11 +17,11 @@ import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
-import java.util.List;
 import java.util.UUID;
 
 import static com.sandeep.incidentplatform.security.TenantResolver.tenantOf;
@@ -26,6 +29,9 @@ import static com.sandeep.incidentplatform.security.TenantResolver.tenantOf;
 @RestController
 @RequestMapping("/api/v1/incidents")
 public class IncidentController {
+
+    static final int DEFAULT_PAGE_SIZE = 20;
+    static final int MAX_PAGE_SIZE = 100;
 
     private final IncidentService incidentService;
 
@@ -46,12 +52,15 @@ public class IncidentController {
         return toResponse(incident);
     }
 
+    // Paginated: ?page=0&size=20. Size is capped so one request can't load the whole table;
+    // out-of-range values fail method validation and become a 400.
     @GetMapping
-    public List<IncidentResponse> listIncidents(@AuthenticationPrincipal Jwt jwt) {
-        return incidentService.findAll(tenantOf(jwt))
-                .stream()
-                .map(this::toResponse)
-                .toList();
+    public PageResponse<IncidentResponse> listIncidents(
+            @AuthenticationPrincipal Jwt jwt,
+            @RequestParam(defaultValue = "0") @Min(0) int page,
+            @RequestParam(defaultValue = "" + DEFAULT_PAGE_SIZE) @Min(1) @Max(MAX_PAGE_SIZE) int size) {
+
+        return PageResponse.from(incidentService.findAll(tenantOf(jwt), page, size).map(this::toResponse));
     }
 
     // An empty Optional becomes IncidentNotFoundException; GlobalExceptionHandler turns it into a 404 body.

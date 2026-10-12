@@ -35,7 +35,7 @@ All endpoints except health require `Authorization: Bearer <JWT>`. The token mus
 |---|---|---|---|---|
 | GET | `/api/v1/health` | public | 200 | |
 | POST | `/api/v1/incidents` | RESPONDER, ADMIN | 201 | 400, 401, 403 |
-| GET | `/api/v1/incidents` | VIEWER, RESPONDER, ADMIN | 200 (newest first) | 401, 403 |
+| GET | `/api/v1/incidents?page=0&size=20` | VIEWER, RESPONDER, ADMIN | 200 (paginated, newest first) | 400, 401, 403 |
 | GET | `/api/v1/incidents/{id}` | VIEWER, RESPONDER, ADMIN | 200 | 400, 401, 403, 404 |
 | PATCH | `/api/v1/incidents/{id}/status` | RESPONDER, ADMIN | 200 | 400, 401, 403, 404, 409 |
 | POST | `/api/v1/dev/token` | public, **`dev` profile only** | 200 | 400 |
@@ -48,6 +48,13 @@ Create request:
 ```
 
 Severity: `LOW | MEDIUM | HIGH | CRITICAL`. Status: `OPEN | INVESTIGATING | MITIGATED | RESOLVED`.
+
+List response (`page` defaults to 0; `size` defaults to 20, maximum 100; out of range → 400):
+
+```json
+{ "items": [ { "id": "…", "title": "Payments failing", "status": "OPEN", "…": "…" } ],
+  "page": 0, "size": 20, "totalElements": 1, "totalPages": 1 }
+```
 
 ### Errors
 

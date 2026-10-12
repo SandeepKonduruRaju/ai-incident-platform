@@ -9,8 +9,13 @@ import com.sandeep.incidentplatform.service.IncidentService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -21,6 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -95,12 +101,12 @@ class IncidentServiceTest {
     }
 
     @Test
-    void shouldReturnEmptyListWhenTenantHasNoIncidents() {
+    void shouldReturnEmptyPageWhenTenantHasNoIncidents() {
         // Arrange
-        when(incidentRepository.findAllByTenantIdOrderByCreatedAtDesc(TENANT)).thenReturn(List.of());
+        when(incidentRepository.findAllByTenantId(eq(TENANT), any(Pageable.class))).thenReturn(Page.empty());
 
         // Act
-        List<Incident> incidents = service.findAll(TENANT);
+        Page<Incident> incidents = service.findAll(TENANT, 0, 20);
 
         // Assert
         assertNotNull(incidents);
@@ -108,17 +114,23 @@ class IncidentServiceTest {
     }
 
     @Test
-    void shouldReturnAllIncidentsOfTenant() {
+    void shouldRequestPageNewestFirstWithStableTieBreaker() {
         // Arrange
         Incident first = incident(IncidentStatus.OPEN);
         Incident second = incident(IncidentStatus.INVESTIGATING);
-        when(incidentRepository.findAllByTenantIdOrderByCreatedAtDesc(TENANT)).thenReturn(List.of(first, second));
+        when(incidentRepository.findAllByTenantId(eq(TENANT), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(first, second)));
 
         // Act
-        List<Incident> incidents = service.findAll(TENANT);
+        Page<Incident> incidents = service.findAll(TENANT, 2, 10);
 
-        // Assert
-        assertEquals(List.of(first, second), incidents);
+        // Assert: the service asks for the right page, size and order
+        ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
+        verify(incidentRepository).findAllByTenantId(eq(TENANT), pageable.capture());
+        assertEquals(2, pageable.getValue().getPageNumber());
+        assertEquals(10, pageable.getValue().getPageSize());
+        assertEquals(Sort.by(Sort.Direction.DESC, "createdAt").and(Sort.by("id")), pageable.getValue().getSort());
+        assertEquals(List.of(first, second), incidents.getContent());
     }
 
     @Test

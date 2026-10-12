@@ -93,7 +93,7 @@ class IncidentApiIntegrationTest {
 
         mockMvc.perform(get("/api/v1/incidents").with(asUser()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(1));
+                .andExpect(jsonPath("$.items.length()").value(1));
     }
 
     @Test
@@ -124,6 +124,30 @@ class IncidentApiIntegrationTest {
     }
 
     @Test
+    void shouldPaginateNewestFirstInPostgres() throws Exception {
+        Instant base = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        for (int i = 1; i <= 3; i++) {
+            incidentRepository.save(new Incident(UUID.randomUUID(), "acme", "Incident " + i, null,
+                    IncidentSeverity.LOW, IncidentStatus.OPEN, "svc", base.plusSeconds(i)));
+        }
+
+        // Page 0, size 2: the two newest
+        mockMvc.perform(get("/api/v1/incidents").param("page", "0").param("size", "2").with(asUser()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(2))
+                .andExpect(jsonPath("$.items[0].title").value("Incident 3"))
+                .andExpect(jsonPath("$.items[1].title").value("Incident 2"))
+                .andExpect(jsonPath("$.totalElements").value(3))
+                .andExpect(jsonPath("$.totalPages").value(2));
+
+        // Page 1: the remaining oldest one
+        mockMvc.perform(get("/api/v1/incidents").param("page", "1").param("size", "2").with(asUser()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].title").value("Incident 1"));
+    }
+
+    @Test
     void shouldIsolateIncidentsBetweenTenants() throws Exception {
         // Tenant "acme" creates an incident
         MvcResult created = mockMvc.perform(post("/api/v1/incidents")
@@ -140,7 +164,7 @@ class IncidentApiIntegrationTest {
                 .andExpect(status().isNotFound());
         mockMvc.perform(get("/api/v1/incidents").with(asTenant("globex")))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(0));
+                .andExpect(jsonPath("$.items.length()").value(0));
         mockMvc.perform(patch("/api/v1/incidents/{id}/status", id)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{ \"status\": \"RESOLVED\" }").with(asTenant("globex")))

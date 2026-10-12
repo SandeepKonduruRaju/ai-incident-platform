@@ -1,9 +1,10 @@
 package com.sandeep.incidentplatform.repository;
 
 import com.sandeep.incidentplatform.model.Incident;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
-import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -12,5 +13,6 @@ public interface IncidentRepository extends JpaRepository<Incident, UUID> {
 
     Optional<Incident> findByIdAndTenantId(UUID id, String tenantId);
 
-    List<Incident> findAllByTenantIdOrderByCreatedAtDesc(String tenantId);
+    // Pageable adds LIMIT/OFFSET and ORDER BY; Page also runs a COUNT query for the totals.
+    Page<Incident> findAllByTenantId(String tenantId, Pageable pageable);
 }

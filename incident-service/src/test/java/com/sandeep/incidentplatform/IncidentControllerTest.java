@@ -10,6 +10,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -19,6 +21,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -67,19 +70,55 @@ class IncidentControllerTest {
     }
 
     @Test
-    void shouldReturnAllIncidents() throws Exception {
-        // Arrange
-        when(incidentService.findAll(TENANT)).thenReturn(List.of(
+    void shouldReturnFirstPageWithDefaultSize() throws Exception {
+        // Arrange: 2 incidents on page 0 (default size 20), 2 in total
+        when(incidentService.findAll(TENANT, 0, 20)).thenReturn(new PageImpl<>(List.of(
                 incident("Payments failing", IncidentStatus.OPEN),
                 incident("Login errors", IncidentStatus.INVESTIGATING)
-        ));
+        ), PageRequest.of(0, 20), 2));
 
         // Act + Assert
         mockMvc.perform(get("/api/v1/incidents").with(asUser()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(2))
-                .andExpect(jsonPath("$[0].title").value("Payments failing"))
-                .andExpect(jsonPath("$[1].title").value("Login errors"));
+                .andExpect(jsonPath("$.items.length()").value(2))
+                .andExpect(jsonPath("$.items[0].title").value("Payments failing"))
+                .andExpect(jsonPath("$.items[1].title").value("Login errors"))
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(20))
+                .andExpect(jsonPath("$.totalElements").value(2))
+                .andExpect(jsonPath("$.totalPages").value(1));
+    }
+
+    @Test
+    void shouldPassRequestedPageAndSizeToService() throws Exception {
+        // Arrange: page 1 of size 2 out of 5 incidents
+        when(incidentService.findAll(TENANT, 1, 2)).thenReturn(new PageImpl<>(List.of(
+                incident("Third", IncidentStatus.OPEN),
+                incident("Fourth", IncidentStatus.OPEN)
+        ), PageRequest.of(1, 2), 5));
+
+        // Act + Assert
+        mockMvc.perform(get("/api/v1/incidents").param("page", "1").param("size", "2").with(asUser()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page").value(1))
+                .andExpect(jsonPath("$.totalElements").value(5))
+                .andExpect(jsonPath("$.totalPages").value(3));
+    }
+
+    @Test
+    void shouldReturn400WhenPageSizeIsTooLarge() throws Exception {
+        mockMvc.perform(get("/api/v1/incidents").param("size", "101").with(asUser()))
+                .andExpect(status().isBadRequest());
+
+        verify(incidentService, never()).findAll(any(), anyInt(), anyInt());
+    }
+
+    @Test
+    void shouldReturn400WhenPageIsNegative() throws Exception {
+        mockMvc.perform(get("/api/v1/incidents").param("page", "-1").with(asUser()))
+                .andExpect(status().isBadRequest());
+
+        verify(incidentService, never()).findAll(any(), anyInt(), anyInt());
     }
 
     @Test

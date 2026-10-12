@@ -125,7 +125,7 @@ class IncidentErrorHandlingTest {
 
     @Test
     void shouldReturnGeneric500WithoutLeakingInternalDetails() throws Exception {
-        when(incidentService.findAll(TENANT)).thenThrow(new IllegalStateException("db password is hunter2"));
+        when(incidentService.findAll(TENANT, 0, 20)).thenThrow(new IllegalStateException("db password is hunter2"));
 
         mockMvc.perform(get(BASE).with(asUser()))
                 .andExpect(status().isInternalServerError())
