@@ -84,7 +84,18 @@ Every error is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) Problem Det
 
 Prerequisites: Java 17, PostgreSQL running on `localhost:5432`, Docker Desktop (for integration tests).
 
-One-time database setup:
+**Option A: PostgreSQL in Docker** (no install). `incident-service/compose.yaml` starts
+PostgreSQL 18 on port **5433** with a local-only password, so it doesn't clash with a native
+install on 5432:
+
+```powershell
+cd incident-service
+docker compose up -d
+$env:DB_URL      = "jdbc:postgresql://localhost:5433/incident_platform"
+$env:DB_PASSWORD = "localpass"   # local container only, never a real password
+```
+
+**Option B: native PostgreSQL** on 5432. One-time database setup:
 
 ```powershell
 $psql = "C:\Program Files\PostgreSQL\18\bin\psql.exe"
