@@ -1,0 +1,43 @@
+"""The worker's own tables, in its own "worker" schema (incident-service owns "public").
+
+SQLAlchemy Core (tables + SQL expressions), not the ORM: closer to JdbcTemplate than to JPA.
+The schema itself is created by the Alembic migrations in migrations/ (Alembic ~ Flyway).
+"""
+
+from sqlalchemy import Column, DateTime, Index, MetaData, String, Table, Uuid
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+
+SCHEMA = "worker"
+
+metadata = MetaData(schema=SCHEMA)
+
+# One row per event we have handled: the idempotency record (eventId is the primary key).
+processed_events = Table(
+    "processed_events",
+    metadata,
+    Column("event_id", Uuid, primary_key=True),
+    Column("event_type", String(100), nullable=False),
+    Column("processed_at", DateTime(timezone=True), nullable=False),
+)
+
+investigations = Table(
+    "investigations",
+    metadata,
+    Column("id", Uuid, primary_key=True),
+    Column("incident_id", Uuid, nullable=False),
+    Column("tenant_id", String(64), nullable=False),
+    Column("status", String(20), nullable=False),
+    Column("request_id", String(255)),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Index("ix_investigations_tenant_incident", "tenant_id", "incident_id"),
+)
+
+
+def create_engine(database_url: str) -> AsyncEngine:
+    # pool_pre_ping: check a pooled connection is alive before using it (survives DB restarts).
+    # timeout / command_timeout: fail fast instead of hanging, so the error is classified as transient.
+    return create_async_engine(
+        database_url,
+        pool_pre_ping=True,
+        connect_args={"timeout": 5, "command_timeout": 10},
+    )

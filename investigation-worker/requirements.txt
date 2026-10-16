@@ -3,3 +3,9 @@ fastapi==0.143.3
 uvicorn[standard]==0.54.0
 pydantic==2.14.1
 pydantic-settings==2.16.0
+# Async Kafka client (consumer + DLQ producer)
+aiokafka==0.14.0
+# Database: SQLAlchemy 2 async API on the asyncpg driver, Alembic for migrations (like Flyway)
+SQLAlchemy[asyncio]==2.1.4
+asyncpg==0.32.0
+alembic==1.20.0

@@ -10,6 +10,8 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+COPY alembic.ini .
+COPY migrations ./migrations
 COPY app ./app
 
 # Run as an unprivileged user, not root.
@@ -17,4 +19,6 @@ RUN useradd --create-home --uid 10001 worker
 USER worker
 
 EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Migrate first (like Flyway on Spring Boot startup), then serve. "exec" makes uvicorn PID 1,
+# so it receives Docker's SIGTERM and runs the lifespan shutdown (graceful consumer stop).
+CMD ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000"]

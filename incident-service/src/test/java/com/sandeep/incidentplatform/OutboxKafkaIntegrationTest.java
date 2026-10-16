@@ -12,6 +12,7 @@ import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -30,6 +31,7 @@ import org.testcontainers.kafka.KafkaContainer;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -130,6 +132,12 @@ class OutboxKafkaIntegrationTest {
             assertEquals("it-req-1", event.requestId());
             assertEquals(UUID.fromString(incidentId), event.payload().incidentId());
             assertNotEquals(UUID.fromString(incidentId), event.eventId());
+
+            // Context headers (read by the investigation worker before it parses the body)
+            assertEquals(event.eventId().toString(), header(record, "eventId"));
+            assertEquals(IncidentCreatedEvent.TYPE, header(record, "eventType"));
+            assertEquals(TestJwt.TENANT, header(record, "tenantId"));
+            assertEquals("it-req-1", header(record, "requestId"));
         }
 
         // The relay commits after the send, so the row may still be unpublished for a moment
@@ -139,6 +147,11 @@ class OutboxKafkaIntegrationTest {
             assertEquals(UUID.fromString(incidentId), rows.get(0).aggregateId());
             assertEquals(0, outboxEventRepository.countByPublishedAtIsNull(), "published_at is set");
         });
+    }
+
+    private static String header(ConsumerRecord<String, String> record, String key) {
+        Header header = record.headers().lastHeader(key);
+        return header == null ? null : new String(header.value(), StandardCharsets.UTF_8);
     }
 
     private static KafkaConsumer<String, String> newConsumer() {

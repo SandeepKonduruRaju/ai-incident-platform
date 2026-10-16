@@ -1,5 +1,7 @@
 package com.sandeep.incidentplatform.outbox;
 
+import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.common.header.Headers;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -7,7 +9,12 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.MissingNode;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -26,10 +33,13 @@ public class OutboxRelay {
 
     private final OutboxEventRepository outboxEventRepository;
     private final KafkaTemplate<String, String> kafkaTemplate;
+    private final JsonMapper jsonMapper;
 
-    public OutboxRelay(OutboxEventRepository outboxEventRepository, KafkaTemplate<String, String> kafkaTemplate) {
+    public OutboxRelay(OutboxEventRepository outboxEventRepository, KafkaTemplate<String, String> kafkaTemplate,
+                       JsonMapper jsonMapper) {
         this.outboxEventRepository = outboxEventRepository;
         this.kafkaTemplate = kafkaTemplate;
+        this.jsonMapper = jsonMapper;
     }
 
     // One transaction per batch: rows stay locked while we send, and the changes below
@@ -41,8 +51,7 @@ public class OutboxRelay {
         for (OutboxEvent event : batch) {
             try {
                 // Blocking on purpose: we must know the send succeeded before marking the row published.
-                kafkaTemplate.send(event.topic(), event.aggregateId().toString(), event.payload())
-                        .get(SEND_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                kafkaTemplate.send(toRecord(event)).get(SEND_TIMEOUT_SECONDS, TimeUnit.SECONDS);
                 event.markPublished(Instant.now());
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -56,5 +65,35 @@ public class OutboxRelay {
                 return;
             }
         }
+    }
+
+    // Key = incidentId (same incident -> same partition -> in order). Headers carry the context a
+    // consumer needs before (or without) parsing the body: for routing, dedupe, tracing and logging.
+    ProducerRecord<String, String> toRecord(OutboxEvent event) {
+        ProducerRecord<String, String> record =
+                new ProducerRecord<>(event.topic(), event.aggregateId().toString(), event.payload());
+        Headers headers = record.headers();
+        addHeader(headers, "eventId", event.id().toString());
+        addHeader(headers, "eventType", event.eventType());
+        // tenantId and requestId are not outbox columns; they live in the stored event envelope.
+        JsonNode envelope = readEnvelope(event);
+        envelope.path("tenantId").stringValueOpt().ifPresent(value -> addHeader(headers, "tenantId", value));
+        envelope.path("requestId").stringValueOpt().ifPresent(value -> addHeader(headers, "requestId", value));
+        return record;
+    }
+
+    private JsonNode readEnvelope(OutboxEvent event) {
+        try {
+            return jsonMapper.readTree(event.payload());
+        } catch (JacksonException e) {
+            // Still send it: the consumer dead-letters bad payloads; we only lose the optional headers.
+            log.warn("Outbox payload is not valid JSON eventId={}; sending without tenantId/requestId headers",
+                    event.id());
+            return MissingNode.getInstance();
+        }
+    }
+
+    private static void addHeader(Headers headers, String key, String value) {
+        headers.add(key, value.getBytes(StandardCharsets.UTF_8));
     }
 }
