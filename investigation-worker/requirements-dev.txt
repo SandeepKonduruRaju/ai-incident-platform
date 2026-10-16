@@ -1,0 +1,5 @@
+# Local development and tests: runtime deps plus test tools (like Maven's test scope).
+-r requirements.txt
+pytest==9.1.1
+# HTTP client used by FastAPI's TestClient (Starlette 1.8 deprecates plain httpx for this).
+httpx2==2.13.1
