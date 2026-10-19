@@ -1,0 +1,274 @@
+{
+  "db_pool_exhausted": {
+    "acme": {
+      "logs": [
+        "LOG-acme-db_pool_exhausted-001",
+        "LOG-acme-db_pool_exhausted-002",
+        "LOG-acme-db_pool_exhausted-003",
+        "LOG-acme-db_pool_exhausted-004",
+        "LOG-acme-db_pool_exhausted-005",
+        "LOG-acme-db_pool_exhausted-006",
+        "LOG-acme-db_pool_exhausted-007",
+        "LOG-acme-db_pool_exhausted-008"
+      ],
+      "metrics": [
+        "MET-acme-db_pool_exhausted"
+      ],
+      "runbooks": [
+        "RB-acme-db_pool_exhausted"
+      ],
+      "incidents": [
+        "INC-acme-db_pool_exhausted-1"
+      ]
+    },
+    "globex": {
+      "logs": [
+        "LOG-globex-db_pool_exhausted-001",
+        "LOG-globex-db_pool_exhausted-002",
+        "LOG-globex-db_pool_exhausted-003",
+        "LOG-globex-db_pool_exhausted-004",
+        "LOG-globex-db_pool_exhausted-005",
+        "LOG-globex-db_pool_exhausted-006",
+        "LOG-globex-db_pool_exhausted-007",
+        "LOG-globex-db_pool_exhausted-008"
+      ],
+      "metrics": [
+        "MET-globex-db_pool_exhausted"
+      ],
+      "runbooks": [
+        "RB-globex-db_pool_exhausted"
+      ],
+      "incidents": [
+        "INC-globex-db_pool_exhausted-1",
+        "INC-globex-db_pool_exhausted-2"
+      ]
+    }
+  },
+  "bad_deploy": {
+    "acme": {
+      "logs": [
+        "LOG-acme-bad_deploy-001",
+        "LOG-acme-bad_deploy-002",
+        "LOG-acme-bad_deploy-003",
+        "LOG-acme-bad_deploy-004",
+        "LOG-acme-bad_deploy-005",
+        "LOG-acme-bad_deploy-006",
+        "LOG-acme-bad_deploy-007",
+        "LOG-acme-bad_deploy-008"
+      ],
+      "metrics": [
+        "MET-acme-bad_deploy"
+      ],
+      "runbooks": [
+        "RB-acme-bad_deploy"
+      ],
+      "incidents": [
+        "INC-acme-bad_deploy-1"
+      ]
+    },
+    "globex": {
+      "logs": [
+        "LOG-globex-bad_deploy-001",
+        "LOG-globex-bad_deploy-002",
+        "LOG-globex-bad_deploy-003",
+        "LOG-globex-bad_deploy-004",
+        "LOG-globex-bad_deploy-005",
+        "LOG-globex-bad_deploy-006",
+        "LOG-globex-bad_deploy-007",
+        "LOG-globex-bad_deploy-008"
+      ],
+      "metrics": [
+        "MET-globex-bad_deploy"
+      ],
+      "runbooks": [
+        "RB-globex-bad_deploy"
+      ],
+      "incidents": [
+        "INC-globex-bad_deploy-1",
+        "INC-globex-bad_deploy-2"
+      ]
+    }
+  },
+  "memory_leak": {
+    "acme": {
+      "logs": [
+        "LOG-acme-memory_leak-001",
+        "LOG-acme-memory_leak-002",
+        "LOG-acme-memory_leak-003",
+        "LOG-acme-memory_leak-004",
+        "LOG-acme-memory_leak-005",
+        "LOG-acme-memory_leak-006",
+        "LOG-acme-memory_leak-007",
+        "LOG-acme-memory_leak-008"
+      ],
+      "metrics": [
+        "MET-acme-memory_leak"
+      ],
+      "runbooks": [
+        "RB-acme-memory_leak"
+      ],
+      "incidents": [
+        "INC-acme-memory_leak-1"
+      ]
+    },
+    "globex": {
+      "logs": [
+        "LOG-globex-memory_leak-001",
+        "LOG-globex-memory_leak-002",
+        "LOG-globex-memory_leak-003",
+        "LOG-globex-memory_leak-004",
+        "LOG-globex-memory_leak-005",
+        "LOG-globex-memory_leak-006",
+        "LOG-globex-memory_leak-007",
+        "LOG-globex-memory_leak-008"
+      ],
+      "metrics": [
+        "MET-globex-memory_leak"
+      ],
+      "runbooks": [
+        "RB-globex-memory_leak"
+      ],
+      "incidents": [
+        "INC-globex-memory_leak-1"
+      ]
+    }
+  },
+  "dns_failure": {
+    "acme": {
+      "logs": [
+        "LOG-acme-dns_failure-001",
+        "LOG-acme-dns_failure-002",
+        "LOG-acme-dns_failure-003",
+        "LOG-acme-dns_failure-004",
+        "LOG-acme-dns_failure-005",
+        "LOG-acme-dns_failure-006",
+        "LOG-acme-dns_failure-007",
+        "LOG-acme-dns_failure-008"
+      ],
+      "metrics": [
+        "MET-acme-dns_failure"
+      ],
+      "runbooks": [
+        "RB-acme-dns_failure"
+      ],
+      "incidents": [
+        "INC-acme-dns_failure-1",
+        "INC-acme-dns_failure-2"
+      ]
+    },
+    "globex": {
+      "logs": [
+        "LOG-globex-dns_failure-001",
+        "LOG-globex-dns_failure-002",
+        "LOG-globex-dns_failure-003",
+        "LOG-globex-dns_failure-004",
+        "LOG-globex-dns_failure-005",
+        "LOG-globex-dns_failure-006",
+        "LOG-globex-dns_failure-007",
+        "LOG-globex-dns_failure-008"
+      ],
+      "metrics": [
+        "MET-globex-dns_failure"
+      ],
+      "runbooks": [
+        "RB-globex-dns_failure"
+      ],
+      "incidents": [
+        "INC-globex-dns_failure-1",
+        "INC-globex-dns_failure-2"
+      ]
+    }
+  },
+  "expired_tls_cert": {
+    "acme": {
+      "logs": [
+        "LOG-acme-expired_tls_cert-001",
+        "LOG-acme-expired_tls_cert-002",
+        "LOG-acme-expired_tls_cert-003",
+        "LOG-acme-expired_tls_cert-004",
+        "LOG-acme-expired_tls_cert-005",
+        "LOG-acme-expired_tls_cert-006",
+        "LOG-acme-expired_tls_cert-007",
+        "LOG-acme-expired_tls_cert-008"
+      ],
+      "metrics": [
+        "MET-acme-expired_tls_cert"
+      ],
+      "runbooks": [
+        "RB-acme-expired_tls_cert"
+      ],
+      "incidents": [
+        "INC-acme-expired_tls_cert-1",
+        "INC-acme-expired_tls_cert-2"
+      ]
+    },
+    "globex": {
+      "logs": [
+        "LOG-globex-expired_tls_cert-001",
+        "LOG-globex-expired_tls_cert-002",
+        "LOG-globex-expired_tls_cert-003",
+        "LOG-globex-expired_tls_cert-004",
+        "LOG-globex-expired_tls_cert-005",
+        "LOG-globex-expired_tls_cert-006",
+        "LOG-globex-expired_tls_cert-007",
+        "LOG-globex-expired_tls_cert-008"
+      ],
+      "metrics": [
+        "MET-globex-expired_tls_cert"
+      ],
+      "runbooks": [
+        "RB-globex-expired_tls_cert"
+      ],
+      "incidents": [
+        "INC-globex-expired_tls_cert-1",
+        "INC-globex-expired_tls_cert-2"
+      ]
+    }
+  },
+  "slow_downstream": {
+    "acme": {
+      "logs": [
+        "LOG-acme-slow_downstream-001",
+        "LOG-acme-slow_downstream-002",
+        "LOG-acme-slow_downstream-003",
+        "LOG-acme-slow_downstream-004",
+        "LOG-acme-slow_downstream-005",
+        "LOG-acme-slow_downstream-006",
+        "LOG-acme-slow_downstream-007",
+        "LOG-acme-slow_downstream-008"
+      ],
+      "metrics": [
+        "MET-acme-slow_downstream"
+      ],
+      "runbooks": [
+        "RB-acme-slow_downstream"
+      ],
+      "incidents": [
+        "INC-acme-slow_downstream-1",
+        "INC-acme-slow_downstream-2"
+      ]
+    },
+    "globex": {
+      "logs": [
+        "LOG-globex-slow_downstream-001",
+        "LOG-globex-slow_downstream-002",
+        "LOG-globex-slow_downstream-003",
+        "LOG-globex-slow_downstream-004",
+        "LOG-globex-slow_downstream-005",
+        "LOG-globex-slow_downstream-006",
+        "LOG-globex-slow_downstream-007",
+        "LOG-globex-slow_downstream-008"
+      ],
+      "metrics": [
+        "MET-globex-slow_downstream"
+      ],
+      "runbooks": [
+        "RB-globex-slow_downstream"
+      ],
+      "incidents": [
+        "INC-globex-slow_downstream-1",
+        "INC-globex-slow_downstream-2"
+      ]
+    }
+  }
+}

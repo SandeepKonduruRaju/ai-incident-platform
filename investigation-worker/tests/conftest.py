@@ -11,7 +11,7 @@ import pytest
 from aiokafka.admin import AIOKafkaAdminClient, NewTopic
 
 KAFKA_IMAGE = "apache/kafka:4.1.0"  # same image as incident-service/compose.yaml
-POSTGRES_IMAGE = "postgres:18-alpine"
+POSTGRES_IMAGE = "pgvector/pgvector:pg18-trixie"  # same image as compose: PostgreSQL 18 + pgvector
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 

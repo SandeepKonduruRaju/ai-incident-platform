@@ -1,6 +1,8 @@
 services:
   postgres:
-    image: postgres:18
+    # PostgreSQL 18 + the pgvector extension. "-trixie" = Debian 13, the same base as the former
+    # postgres:18 image, so the existing data directory keeps the same glibc collation rules.
+    image: pgvector/pgvector:pg18-trixie
     container_name: incidents-db
     environment:
       POSTGRES_DB: incident_platform
@@ -34,12 +36,16 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      # Without this the image writes to /tmp/kafka-logs inside the container, so every
+      # recreate lost all topics and messages. Point it at the mounted volume instead.
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
     volumes:
       - kafka-data:/var/lib/kafka/data
     healthcheck:
+      # Starts a JVM per probe: ~2s when idle, ~10s on a busy laptop, hence the generous timeout.
       test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server kafka:29092 > /dev/null 2>&1"]
-      interval: 10s
-      timeout: 10s
+      interval: 15s
+      timeout: 30s
       retries: 10
       start_period: 15s
 
