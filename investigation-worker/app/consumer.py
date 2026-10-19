@@ -5,8 +5,11 @@ Guarantees, per message:
   2. offset committed only AFTER processing succeeded, or after the message was safely dead-lettered
   3. transient failures retried with backoff; permanent ones dead-lettered immediately
 
-Delivery is at-least-once (a crash before the commit means redelivery), and create_investigation
-is idempotent, so the end result is "effectively once".
+Delivery is at-least-once (a crash before the commit means redelivery), and processing is
+idempotent (status-aware, see app/processing.py), so the end result is "effectively once".
+
+Investigation outcomes are NOT failures here: an invalid LLM answer or an LLM outage ends as a FAILED
+investigation row and a normal commit. Only a bad event (or a database that stays down) goes to the DLQ.
 """
 
 import asyncio
@@ -21,7 +24,7 @@ from aiokafka.abc import ConsumerRebalanceListener
 from aiokafka.errors import KafkaError
 
 from app.config import Settings
-from app.errors import ErrorCategory, UnsupportedEventError, classify
+from app.errors import ErrorCategory, LLMConfigError, UnsupportedEventError, classify
 from app.events import IncidentCreatedEvent
 from app.logging_context import log_context
 from app.retry import backoff_delay
@@ -90,6 +93,9 @@ class IncidentEventConsumer:
         self._lock = asyncio.Lock()
         self._task: asyncio.Task | None = None
         self.state = "not started"
+        # Set when processing hit a system-wide problem (LLM auth/config): the loop keeps running, but
+        # /health reports 503 with this reason until the worker is fixed and restarted.
+        self.unhealthy_reason: str | None = None
 
     @property
     def is_alive(self) -> bool:
@@ -208,6 +214,13 @@ class IncidentEventConsumer:
         for attempt in range(1, max_attempts + 1):
             try:
                 await self._processor(event)
+                return None
+            except LLMConfigError as exc:
+                # The worker is misconfigured (bad key / model id), not this event: no DLQ, no FAILED
+                # investigation (it was put back to PENDING), offset committed. /health turns 503 so
+                # the operator notices; fix the key, restart, then re-run with: python -m app.rerun --status PENDING
+                log.error("LLM auth/config error — check ANTHROPIC_API_KEY: %s", exc)
+                self.unhealthy_reason = str(exc)
                 return None
             except Exception as exc:  # CancelledError is not an Exception, so shutdown still works
                 category = classify(exc)

@@ -82,6 +82,10 @@ services:
       # Local-dev password only (same one as POSTGRES_PASSWORD above).
       DATABASE_URL: postgresql+asyncpg://incident_app:localpass@postgres:5432/incident_platform
       LOG_LEVEL: INFO
+      # From the HOST environment, never written here. Default fake: the stack runs without a key or cost.
+      # Real Claude: $env:LLM_PROVIDER="anthropic"; $env:ANTHROPIC_API_KEY="..." before docker compose up.
+      LLM_PROVIDER: ${LLM_PROVIDER:-fake}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     ports:
       - "8001:8000"
     healthcheck:

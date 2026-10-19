@@ -4,7 +4,8 @@ SQLAlchemy Core (tables + SQL expressions), not the ORM: closer to JdbcTemplate 
 The schema itself is created by the Alembic migrations in migrations/ (Alembic ~ Flyway).
 """
 
-from sqlalchemy import Column, DateTime, Index, MetaData, String, Table, Uuid
+from sqlalchemy import Column, DateTime, Index, Integer, MetaData, String, Table, Text, Uuid
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 SCHEMA = "worker"
@@ -26,9 +27,23 @@ investigations = Table(
     Column("id", Uuid, primary_key=True),
     Column("incident_id", Uuid, nullable=False),
     Column("tenant_id", String(64), nullable=False),
-    Column("status", String(20), nullable=False),
+    Column("status", String(20), nullable=False),  # PENDING | RUNNING | COMPLETED | FAILED (migration 0004)
     Column("request_id", String(255)),
     Column("created_at", DateTime(timezone=True), nullable=False),
+    # --- migration 0004: the investigation input and outcome ---
+    Column("incident", JSONB),
+    Column("result", JSONB),
+    Column("evidence", JSONB),
+    Column("failure_reason", Text),
+    Column("prompt_version", Text),
+    Column("model", Text),
+    Column("input_tokens", Integer),
+    Column("output_tokens", Integer),
+    Column("llm_latency_ms", Integer),
+    Column("attempts", Integer, nullable=False, server_default="0"),
+    Column("run_count", Integer, nullable=False, server_default="0"),
+    Column("started_at", DateTime(timezone=True)),
+    Column("completed_at", DateTime(timezone=True)),
     Index("ix_investigations_tenant_incident", "tenant_id", "incident_id"),
 )
 

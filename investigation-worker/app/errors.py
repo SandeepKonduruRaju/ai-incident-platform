@@ -22,7 +22,29 @@ class TransientError(Exception):
     """Raise to mark a failure as retryable explicitly."""
 
 
+class PermanentError(Exception):
+    """Raise to mark a failure as NOT retryable explicitly (retrying sends the same bad request again)."""
+
+
+class TransientLLMError(TransientError):
+    """LLM call failed in a way that may succeed later: timeout, 429, 5xx, overloaded, connection lost."""
+
+    def __init__(self, message: str, retry_after: float | None = None):
+        super().__init__(message)
+        self.retry_after = retry_after  # seconds, from the retry-after header when the API sent one
+
+
+class PermanentLLMError(PermanentError):
+    """LLM rejected this request (400, 413, 422): the same prompt will be rejected again."""
+
+
+class LLMConfigError(Exception):
+    """401/403/404/missing credentials: the WORKER is misconfigured (bad key, wrong model id), not this
+    incident. Must never mark an incident FAILED; it leaves it PENDING and makes /health report 503."""
+
+
 _PERMANENT = (
+    PermanentError,
     json.JSONDecodeError,  # not JSON at all
     UnicodeDecodeError,  # not even text
     ValidationError,  # JSON, but not a valid event (missing/wrong fields)

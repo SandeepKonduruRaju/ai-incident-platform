@@ -7,8 +7,10 @@ from fastapi import FastAPI, Request, Response
 from app.config import get_settings
 from app.consumer import IncidentEventConsumer
 from app.db import create_engine
+from app.investigator import build_deps, build_retriever, load_models, make_investigate
+from app.llm import build_llm
 from app.logging_context import configure_logging
-from app.processing import create_investigation
+from app.processing import process_event
 
 
 @asynccontextmanager
@@ -16,8 +18,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Startup before `yield`, shutdown after it (like @PostConstruct / @PreDestroy for the whole app)."""
     settings = get_settings()
     configure_logging(settings.log_level)
+    llm = build_llm(settings)  # fails fast: LLM_PROVIDER=anthropic without ANTHROPIC_API_KEY stops startup here
     engine = create_engine(settings.database_url)
-    consumer = IncidentEventConsumer(settings, processor=partial(create_investigation, engine))
+    embedder, reranker = await load_models(settings)
+    deps = build_deps(settings, engine, llm, build_retriever(engine, embedder, reranker, settings))
+    consumer = IncidentEventConsumer(settings, processor=partial(process_event, engine, make_investigate(deps, settings)))
     app.state.consumer = consumer
     app.state.consumer_enabled = settings.consumer_enabled
     if settings.consumer_enabled:
@@ -41,4 +46,9 @@ def health(request: Request, response: Response) -> dict[str, str]:
         # 503 makes the Docker healthcheck (and a Kubernetes probe) notice a dead consumer.
         response.status_code = 503
         return {"status": "unavailable", "consumer": consumer.state if consumer else "not started"}
+    reason = getattr(consumer, "unhealthy_reason", None)
+    if reason:
+        # Alive but useless: e.g. a bad ANTHROPIC_API_KEY makes every investigation stay PENDING.
+        response.status_code = 503
+        return {"status": "unavailable", "consumer": consumer.state, "reason": reason}
     return {"status": "ok", "consumer": consumer.state}

@@ -2,6 +2,7 @@
 and skip the test cleanly when Docker is not available, like @Testcontainers(disabledWithoutDocker = true)."""
 
 import asyncio
+import os
 import socket
 import time
 import uuid
@@ -13,6 +14,12 @@ from aiokafka.admin import AIOKafkaAdminClient, NewTopic
 KAFKA_IMAGE = "apache/kafka:4.1.0"  # same image as incident-service/compose.yaml
 POSTGRES_IMAGE = "pgvector/pgvector:pg18-trixie"  # same image as compose: PostgreSQL 18 + pgvector
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+# Tests never call a real LLM unless explicitly asked: the provider the developer's SHELL asked for is
+# remembered for the optional live tests, then forced to "fake" for everything else. A real environment
+# variable wins over the developer's .env, so whatever .env says cannot make a test spend money.
+LIVE_LLM_PROVIDER = os.environ.get("LLM_PROVIDER")
+os.environ["LLM_PROVIDER"] = "fake"
 
 
 def _docker_available() -> bool:
