@@ -31,3 +31,7 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### Local secrets ###
+# docker compose reads incident-service/.env for ${...} values; .env.example is the committed template.
+.env

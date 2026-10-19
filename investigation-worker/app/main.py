@@ -7,6 +7,8 @@ from fastapi import FastAPI, Request, Response
 from app.config import get_settings
 from app.consumer import IncidentEventConsumer
 from app.db import create_engine
+from app.internal_api import require_internal_token_configured
+from app.internal_api import router as internal_router
 from app.investigator import build_deps, build_retriever, load_models, make_investigate
 from app.llm import build_llm
 from app.logging_context import configure_logging
@@ -18,8 +20,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Startup before `yield`, shutdown after it (like @PostConstruct / @PreDestroy for the whole app)."""
     settings = get_settings()
     configure_logging(settings.log_level)
+    require_internal_token_configured(settings)  # fails fast: never serve /internal/* unprotected
     llm = build_llm(settings)  # fails fast: LLM_PROVIDER=anthropic without ANTHROPIC_API_KEY stops startup here
     engine = create_engine(settings.database_url)
+    app.state.engine = engine  # used by the internal read API
     embedder, reranker = await load_models(settings)
     deps = build_deps(settings, engine, llm, build_retriever(engine, embedder, reranker, settings))
     consumer = IncidentEventConsumer(settings, processor=partial(process_event, engine, make_investigate(deps, settings)))
@@ -35,6 +39,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="investigation-worker", lifespan=lifespan)
+app.include_router(internal_router)  # /internal/v1/*, every route requires X-Internal-Token; /health stays public
 
 
 @app.get("/health")

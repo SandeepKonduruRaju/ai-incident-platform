@@ -30,6 +30,8 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+    static final String WORKER_RETRY_AFTER_SECONDS = "5";
+
     // 400: @Valid failed. Adds a per-field "errors" list so clients can show messages next to inputs.
     @Override
     protected ResponseEntity<Object> handleMethodArgumentNotValid(MethodArgumentNotValidException ex,
@@ -70,6 +72,19 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 "The incident was modified by another request. Reload it and try again.");
         problem.setTitle("Concurrent update");
         return problem;
+    }
+
+    // 503: the investigation worker is down, slow or misconfigured. The incident itself is fine;
+    // Retry-After tells the client when to try again. The cause was already logged by the client class.
+    @ExceptionHandler(WorkerUnavailableException.class)
+    public ResponseEntity<ProblemDetail> handleWorkerUnavailable(WorkerUnavailableException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE,
+                "The investigation service is temporarily unavailable. Try again shortly.");
+        problem.setTitle("Investigation unavailable");
+        problem.setProperty("requestId", MDC.get(RequestIdFilter.MDC_KEY));
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header(HttpHeaders.RETRY_AFTER, WORKER_RETRY_AFTER_SECONDS)
+                .body(problem);
     }
 
     // 500: anything unexpected. Log the details server-side; never leak them to the client.

@@ -78,12 +78,17 @@ class Settings(BaseSettings):
     investigation_time_budget_seconds: float = 120.0
     evidence_max_chars: int = 1500  # per evidence chunk in the prompt
 
+    # --- Internal API (section 2.7) ---
+    # Shared secret that incident-service sends in X-Internal-Token. No default: the app refuses to
+    # start without it, so the internal endpoint can never be left open by accident.
+    internal_api_token: SecretStr | None = None
+
     log_level: str = "INFO"
 
-    @field_validator("anthropic_api_key", mode="before")
+    @field_validator("anthropic_api_key", "internal_api_token", mode="before")
     @classmethod
-    def _blank_key_is_no_key(cls, value: object) -> object:
-        # compose passes ANTHROPIC_API_KEY="" when the host has none: treat that as "not set".
+    def _blank_secret_is_no_secret(cls, value: object) -> object:
+        # compose passes VAR="" when the host has none: treat that as "not set".
         return None if isinstance(value, str) and not value.strip() else value
 
     @model_validator(mode="after")

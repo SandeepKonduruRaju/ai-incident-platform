@@ -290,6 +290,7 @@ async def test_lifespan_starts_and_stops_the_consumer(kafka_bootstrap, topics, d
     monkeypatch.setenv("KAFKA_TOPIC", topics[0])  # must exist: auto-create is off
     monkeypatch.setenv("KAFKA_GROUP_ID", f"lifespan-{uuid.uuid4().hex[:8]}")
     monkeypatch.setenv("DATABASE_URL", database_url)
+    monkeypatch.setenv("INTERNAL_API_TOKEN", "test-only-internal-token")  # required since 2.7
     get_settings.cache_clear()
     from app.main import app
 
@@ -305,7 +306,7 @@ async def test_lifespan_starts_and_stops_the_consumer(kafka_bootstrap, topics, d
         assert not consumer.is_alive
     finally:
         get_settings.cache_clear()
-        for name in ("consumer", "consumer_enabled"):
+        for name in ("consumer", "consumer_enabled", "engine"):
             if hasattr(app.state, name):
                 delattr(app.state, name)
 

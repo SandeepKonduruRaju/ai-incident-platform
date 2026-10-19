@@ -86,6 +86,9 @@ services:
       # Real Claude: $env:LLM_PROVIDER="anthropic"; $env:ANTHROPIC_API_KEY="..." before docker compose up.
       LLM_PROVIDER: ${LLM_PROVIDER:-fake}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # Shared secret for GET /internal/v1/* (incident-service sends it as X-Internal-Token).
+      # DEV-ONLY default; incident-service must use the same value ($env:INTERNAL_API_TOKEN).
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-dev-only-internal-token-change-me}
     ports:
       - "8001:8000"
     healthcheck:
