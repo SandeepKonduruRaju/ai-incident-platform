@@ -92,6 +92,21 @@ services:
       retries: 5
       start_period: 20s
 
+  # One-shot job: load the synthetic evidence into worker.chunks (chunk, embed, upsert), then exit.
+  # Waits for the worker to be healthy, which means its "alembic upgrade head" has created worker.chunks.
+  # Idempotent (deterministic chunk ids + upsert), so it is safe on every "docker compose up".
+  worker-ingest:
+    image: investigation-worker:local   # same image as investigation-worker (model baked in); built there
+    pull_policy: never                  # local image only: never try Docker Hub
+    container_name: investigation-worker-ingest
+    depends_on:
+      investigation-worker:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://incident_app:localpass@postgres:5432/incident_platform
+    command: ["python", "-m", "app.ingest"]
+    restart: "no"
+
 volumes:
   incidents-data:
   kafka-data:

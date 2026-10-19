@@ -33,6 +33,17 @@ class Settings(BaseSettings):
     retry_base_delay_seconds: float = 0.5
     retry_max_delay_seconds: float = 10.0
 
+    # --- Embeddings (retrieval) ---
+    # Changing the model means re-ingesting everything: vectors from different models are not comparable,
+    # and the column is vector(384), so the model must produce 384 dimensions.
+    embedding_model: str = "BAAI/bge-small-en-v1.5"
+    # Where the ONNX model files are stored. None = fastembed's default (FASTEMBED_CACHE_PATH or the temp dir).
+    # The Docker image downloads the model into a fixed directory at build time and sets this to it.
+    embedding_cache_dir: str | None = None
+    # Prepended to search queries only (documents are embedded without it). The bge-*-v1.5 model card
+    # recommends it for short-query -> passage retrieval; empty string = off.
+    embedding_query_instruction: str = "Represent this sentence for searching relevant passages: "
+
     log_level: str = "INFO"
 
 

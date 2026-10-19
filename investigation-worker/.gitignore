@@ -3,3 +3,5 @@ __pycache__/
 .pytest_cache/
 # Local settings with real values; .env.example is the committed template.
 .env
+# Throwaway exploration scripts.
+scratch_*.py

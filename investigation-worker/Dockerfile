@@ -10,12 +10,26 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Run as an unprivileged user, not root.
+RUN useradd --create-home --uid 10001 worker
+
+# Bake the embedding model into the image at build time: containers start without downloading
+# ~70MB from Hugging Face, work without internet access, and every replica uses the same files.
+# Own layer before COPY app: it stays cached while only the code changes.
+ARG EMBEDDING_MODEL=BAAI/bge-small-en-v1.5
+ENV EMBEDDING_MODEL=${EMBEDDING_MODEL} \
+    EMBEDDING_CACHE_DIR=/opt/models
+RUN python -c "import os; from fastembed import TextEmbedding; TextEmbedding(os.environ['EMBEDDING_MODEL'], cache_dir=os.environ['EMBEDDING_CACHE_DIR'])" \
+    && chown -R worker:worker /opt/models
+# From here on, never try to reach Hugging Face: a missing model fails fast instead of downloading.
+ENV HF_HUB_OFFLINE=1
+
 COPY alembic.ini .
 COPY migrations ./migrations
 COPY app ./app
+# Synthetic evidence for "python -m app.ingest" inside the container.
+COPY data ./data
 
-# Run as an unprivileged user, not root.
-RUN useradd --create-home --uid 10001 worker
 USER worker
 
 EXPOSE 8000
