@@ -15,6 +15,7 @@ does not change the data of the others.
 import argparse
 import json
 import random
+import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -353,6 +354,48 @@ Owner: {oncall} | Dependency: {downstream}
     },
 }
 
+# ---------------------------------------------------------------- evaluation incidents
+# One "current" incident per tenant and scenario, shaped like incident-service's IncidentCreatedPayload:
+# what an on-call engineer would type when opening the incident. Written from the symptoms, in other
+# words than the runbooks, so retrieval has to match meaning, not copy-pasted text.
+
+EVAL_INCIDENT_NAMESPACE = uuid.uuid5(uuid.NAMESPACE_URL, "https://github.com/SandeepKonduruRaju/ai-incident-platform/eval-incidents")
+# The incident is opened 10 minutes after the scenario starts (its logs span start .. start + 40 min).
+EVAL_INCIDENT_DELAY = timedelta(minutes=10)
+
+EVAL_INCIDENT_TEMPLATES = {
+    "db_pool_exhausted": {
+        "title": "{service} requests timing out, 5xx rising",
+        "description": "Since {start} many {service} requests hang for seconds and then fail. The errors mention "
+                       "timeouts while talking to {database}. CPU on the service and on the database looks normal.",
+    },
+    "bad_deploy": {
+        "title": "{service} error rate up after today's release",
+        "description": "Shortly after {service} {version} was rolled out with {deploy_tool}, users started getting "
+                       "server errors and some of the new pods keep restarting.",
+    },
+    "memory_leak": {
+        "title": "{service} pods restarting every few hours",
+        "description": "{service} pods are killed and restarted regularly. Before each restart the service gets "
+                       "slower and its memory usage climbs steadily.",
+    },
+    "dns_failure": {
+        "title": "{service} cannot reach its dependencies",
+        "description": "Since {start} outbound calls from {service} fail with host lookup errors, although the "
+                       "dependencies themselves report healthy.",
+    },
+    "expired_tls_cert": {
+        "title": "HTTPS failures on {domain}",
+        "description": "Clients calling {domain} ({service}) suddenly get secure connection errors since {start}. "
+                       "Nothing was deployed.",
+    },
+    "slow_downstream": {
+        "title": "{service} very slow, many timeouts",
+        "description": "{service} p99 latency is many times higher than usual while its own CPU and database look "
+                       "fine. Calls to another service are timing out and being retried.",
+    },
+}
+
 # ---------------------------------------------------------------- noise templates
 
 NOISE_INFO = [
@@ -539,7 +582,27 @@ def _scenario_items(seed: int, tenant: str, scenario: str) -> dict[str, list[dic
         }
         for number, incident in enumerate(template["incidents"][: rng.choice((1, 2))], start=1)
     ]
-    return {"logs": logs, "metrics": metrics, "runbooks": runbooks, "incidents": incidents}
+    # Built from the context only (no rng draws), so adding it did not change any other generated value.
+    eval_incident = {
+        "tenantId": tenant,
+        "scenario": scenario,
+        "incident": {
+            "incidentId": str(uuid.uuid5(EVAL_INCIDENT_NAMESPACE, f"{tenant}:{scenario}")),
+            "title": EVAL_INCIDENT_TEMPLATES[scenario]["title"].format_map(context),
+            "description": EVAL_INCIDENT_TEMPLATES[scenario]["description"].format_map(context),
+            "severity": "HIGH",
+            "status": "OPEN",
+            "affectedService": service,
+            "createdAt": _iso(start + EVAL_INCIDENT_DELAY),
+        },
+    }
+    return {
+        "logs": logs,
+        "metrics": metrics,
+        "runbooks": runbooks,
+        "incidents": incidents,
+        "eval_incident": eval_incident,
+    }
 
 
 def _noise_items(seed: int, tenant: str) -> dict[str, list[dict]]:
@@ -610,9 +673,10 @@ def _noise_items(seed: int, tenant: str) -> dict[str, list[dict]]:
 
 
 def generate(seed: int = DEFAULT_SEED) -> dict:
-    """Build the whole dataset in memory: {logs, metrics, runbooks, incidents: [...], golden: {...}}."""
+    """Build the whole dataset in memory: {logs, metrics, runbooks, incidents, eval_incidents: [...], golden: {...}}."""
     dataset: dict = {kind: [] for kind in EVIDENCE_TYPES}
     golden: dict = {scenario: {} for scenario in SCENARIOS}
+    eval_incidents: list[dict] = []
 
     for tenant in TENANTS:
         for scenario in SCENARIOS:
@@ -620,6 +684,7 @@ def generate(seed: int = DEFAULT_SEED) -> dict:
             for kind in EVIDENCE_TYPES:
                 dataset[kind].extend(items[kind])
             golden[scenario][tenant] = {kind: [item["source_id"] for item in items[kind]] for kind in EVIDENCE_TYPES}
+            eval_incidents.append(items["eval_incident"])
         noise = _noise_items(seed, tenant)
         for kind in EVIDENCE_TYPES:
             dataset[kind].extend(noise[kind])
@@ -628,13 +693,14 @@ def generate(seed: int = DEFAULT_SEED) -> dict:
     for kind in EVIDENCE_TYPES:
         dataset[kind].sort(key=lambda item: (item["tenant_id"], item.get("ts") or "", item["source_id"]))
     dataset["golden"] = golden
+    dataset["eval_incidents"] = eval_incidents
     return dataset
 
 
 def write(dataset: dict, out_dir: Path) -> list[Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
     written = []
-    for name in (*EVIDENCE_TYPES, "golden"):
+    for name in (*EVIDENCE_TYPES, "golden", "eval_incidents"):
         path = out_dir / f"{name}.json"
         # newline="\n": identical bytes on Windows and Linux.
         path.write_text(json.dumps(dataset[name], indent=2, ensure_ascii=False) + "\n", encoding="utf-8", newline="\n")

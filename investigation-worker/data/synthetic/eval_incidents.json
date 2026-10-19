@@ -1,0 +1,158 @@
+[
+  {
+    "tenantId": "acme",
+    "scenario": "db_pool_exhausted",
+    "incident": {
+      "incidentId": "39a7674b-9655-5f4e-beff-2e6fe927951d",
+      "title": "payment-service requests timing out, 5xx rising",
+      "description": "Since 2026-09-24 22:20 UTC many payment-service requests hang for seconds and then fail. The errors mention timeouts while talking to orders-db. CPU on the service and on the database looks normal.",
+      "severity": "HIGH",
+      "status": "OPEN",
+      "affectedService": "payment-service",
+      "createdAt": "2026-09-24T22:30:00Z"
+    }
+  },
+  {
+    "tenantId": "acme",
+    "scenario": "bad_deploy",
+    "incident": {
+      "incidentId": "1533cd88-3744-52e8-883f-bbe6505a0ca9",
+      "title": "checkout-api error rate up after today's release",
+      "description": "Shortly after checkout-api v4.1.2 was rolled out with ArgoCD, users started getting server errors and some of the new pods keep restarting.",
+      "severity": "HIGH",
+      "status": "OPEN",
+      "affectedService": "checkout-api",
+      "createdAt": "2026-09-28T09:49:00Z"
+    }
+  },
+  {
+    "tenantId": "acme",
+    "scenario": "memory_leak",
+    "incident": {
+      "incidentId": "1920f80d-9f71-5c6a-bd3c-29b70ac23406",
+      "title": "inventory-service pods restarting every few hours",
+      "description": "inventory-service pods are killed and restarted regularly. Before each restart the service gets slower and its memory usage climbs steadily.",
+      "severity": "HIGH",
+      "status": "OPEN",
+      "affectedService": "inventory-service",
+      "createdAt": "2026-09-24T12:28:00Z"
+    }
+  },
+  {
+    "tenantId": "acme",
+    "scenario": "dns_failure",
+    "incident": {
+      "incidentId": "b259f797-a220-5c58-b78a-9a1761497b52",
+      "title": "auth-service cannot reach its dependencies",
+      "description": "Since 2026-09-20 03:06 UTC outbound calls from auth-service fail with host lookup errors, although the dependencies themselves report healthy.",
+      "severity": "HIGH",
+      "status": "OPEN",
+      "affectedService": "auth-service",
+      "createdAt": "2026-09-20T03:16:00Z"
+    }
+  },
+  {
+    "tenantId": "acme",
+    "scenario": "expired_tls_cert",
+    "incident": {
+      "incidentId": "ca9db78a-068a-591b-a47e-c59a5e4007e1",
+      "title": "HTTPS failures on api.acme.example",
+      "description": "Clients calling api.acme.example (checkout-api) suddenly get secure connection errors since 2026-09-28 15:34 UTC. Nothing was deployed.",
+      "severity": "HIGH",
+      "status": "OPEN",
+      "affectedService": "checkout-api",
+      "createdAt": "2026-09-28T15:44:00Z"
+    }
+  },
+  {
+    "tenantId": "acme",
+    "scenario": "slow_downstream",
+    "incident": {
+      "incidentId": "f34d4e8a-672d-516c-a184-06ead1b8e353",
+      "title": "payment-service very slow, many timeouts",
+      "description": "payment-service p99 latency is many times higher than usual while its own CPU and database look fine. Calls to another service are timing out and being retried.",
+      "severity": "HIGH",
+      "status": "OPEN",
+      "affectedService": "payment-service",
+      "createdAt": "2026-09-12T06:37:00Z"
+    }
+  },
+  {
+    "tenantId": "globex",
+    "scenario": "db_pool_exhausted",
+    "incident": {
+      "incidentId": "93e32dbf-1bc0-5416-ba67-624bedbffda4",
+      "title": "inventory-service requests timing out, 5xx rising",
+      "description": "Since 2026-09-11 00:59 UTC many inventory-service requests hang for seconds and then fail. The errors mention timeouts while talking to ledger-db. CPU on the service and on the database looks normal.",
+      "severity": "HIGH",
+      "status": "OPEN",
+      "affectedService": "inventory-service",
+      "createdAt": "2026-09-11T01:09:00Z"
+    }
+  },
+  {
+    "tenantId": "globex",
+    "scenario": "bad_deploy",
+    "incident": {
+      "incidentId": "0af22c04-a3b5-50ea-8909-9ff12945f4a6",
+      "title": "payment-service error rate up after today's release",
+      "description": "Shortly after payment-service v2.0.4 was rolled out with Spinnaker, users started getting server errors and some of the new pods keep restarting.",
+      "severity": "HIGH",
+      "status": "OPEN",
+      "affectedService": "payment-service",
+      "createdAt": "2026-09-09T10:54:00Z"
+    }
+  },
+  {
+    "tenantId": "globex",
+    "scenario": "memory_leak",
+    "incident": {
+      "incidentId": "741d6730-bc3c-5f67-a361-f2943d88e755",
+      "title": "checkout-api pods restarting every few hours",
+      "description": "checkout-api pods are killed and restarted regularly. Before each restart the service gets slower and its memory usage climbs steadily.",
+      "severity": "HIGH",
+      "status": "OPEN",
+      "affectedService": "checkout-api",
+      "createdAt": "2026-09-08T01:51:00Z"
+    }
+  },
+  {
+    "tenantId": "globex",
+    "scenario": "dns_failure",
+    "incident": {
+      "incidentId": "3eaba21f-46af-5ae4-9600-7a83a0468f91",
+      "title": "payment-service cannot reach its dependencies",
+      "description": "Since 2026-09-11 08:59 UTC outbound calls from payment-service fail with host lookup errors, although the dependencies themselves report healthy.",
+      "severity": "HIGH",
+      "status": "OPEN",
+      "affectedService": "payment-service",
+      "createdAt": "2026-09-11T09:09:00Z"
+    }
+  },
+  {
+    "tenantId": "globex",
+    "scenario": "expired_tls_cert",
+    "incident": {
+      "incidentId": "aa95cb0b-f4b4-567e-bf96-2683cb331826",
+      "title": "HTTPS failures on pay.globex.example",
+      "description": "Clients calling pay.globex.example (auth-service) suddenly get secure connection errors since 2026-09-21 05:09 UTC. Nothing was deployed.",
+      "severity": "HIGH",
+      "status": "OPEN",
+      "affectedService": "auth-service",
+      "createdAt": "2026-09-21T05:19:00Z"
+    }
+  },
+  {
+    "tenantId": "globex",
+    "scenario": "slow_downstream",
+    "incident": {
+      "incidentId": "8e0d33c7-1c96-5cff-82a9-2d9d3ef93361",
+      "title": "checkout-api very slow, many timeouts",
+      "description": "checkout-api p99 latency is many times higher than usual while its own CPU and database look fine. Calls to another service are timing out and being retried.",
+      "severity": "HIGH",
+      "status": "OPEN",
+      "affectedService": "checkout-api",
+      "createdAt": "2026-09-21T14:00:00Z"
+    }
+  }
+]

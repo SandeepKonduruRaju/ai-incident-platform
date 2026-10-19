@@ -6,6 +6,7 @@
 
 import argparse
 import asyncio
+from datetime import datetime
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -16,18 +17,61 @@ def to_pgvector(vec: list[float]) -> str:
     return "[" + ",".join(f"{x:.6f}" for x in vec) + "]"
 
 
-def build_search_sql(*, source_types: list[str] | None = None, service: str | None = None):
-    """The search query. tenant_id is always in the WHERE clause; the other filters are optional extras."""
+# Columns both searches return, so their results can be fused (RRF) and merged by chunk_id.
+_RESULT_COLUMNS = "id AS chunk_id, tenant_id, source_id, chunk_index, source_type, service, ts, content"
+
+
+def _where(
+    *,
+    source_types: list[str] | None,
+    service: str | None,
+    time_from: datetime | None,
+    time_to: datetime | None,
+) -> str:
+    """WHERE clause shared by vector and keyword search. tenant_id is ALWAYS the first filter."""
     filters = ["tenant_id = :tenant"]  # tenant isolation
     if source_types is not None:
         filters.append("source_type = ANY(:source_types)")
     if service is not None:
         filters.append("service = :service")
+    # Half-open window [time_from, time_to). Rows without ts (runbooks) never match a time filter.
+    if time_from is not None:
+        filters.append("ts >= :time_from")
+    if time_to is not None:
+        filters.append("ts < :time_to")
+    return " AND ".join(filters)
+
+
+def _params(
+    tenant_id: str,
+    k: int,
+    source_types: list[str] | None,
+    service: str | None,
+    time_from: datetime | None,
+    time_to: datetime | None,
+) -> dict:
+    params: dict = {"tenant": tenant_id, "k": k}
+    if source_types is not None:
+        params["source_types"] = list(source_types)
+    optional = {"service": service, "time_from": time_from, "time_to": time_to}
+    params.update({name: value for name, value in optional.items() if value is not None})
+    return params
+
+
+def build_search_sql(
+    *,
+    source_types: list[str] | None = None,
+    service: str | None = None,
+    time_from: datetime | None = None,
+    time_to: datetime | None = None,
+):
+    """The vector search query. tenant_id is always in the WHERE clause; the other filters are optional extras."""
+    where = _where(source_types=source_types, service=service, time_from=time_from, time_to=time_to)
     return text(f"""
-        SELECT tenant_id, source_id, chunk_index, source_type, service, content,
+        SELECT {_RESULT_COLUMNS},
                embedding <=> CAST(:q AS vector) AS distance   -- cosine distance
         FROM worker.chunks
-        WHERE {" AND ".join(filters)}
+        WHERE {where}
         ORDER BY embedding <=> CAST(:q AS vector)               -- nearest first (uses HNSW)
         LIMIT :k
     """)
@@ -41,17 +85,61 @@ async def search_chunks(
     k: int = 5,
     source_types: list[str] | None = None,  # e.g. ["runbook"]; None = all types
     service: str | None = None,             # e.g. "payment-service"; None = all services
+    time_from: datetime | None = None,      # only chunks with ts >= time_from
+    time_to: datetime | None = None,        # only chunks with ts < time_to
 ) -> list[dict]:
-    sql = build_search_sql(source_types=source_types, service=service)
-    params = {"q": to_pgvector(query_vector), "tenant": tenant_id, "k": k}
-    if source_types is not None:
-        params["source_types"] = list(source_types)
-    if service is not None:
-        params["service"] = service
+    sql = build_search_sql(source_types=source_types, service=service, time_from=time_from, time_to=time_to)
+    params = _params(tenant_id, k, source_types, service, time_from, time_to)
+    params["q"] = to_pgvector(query_vector)
 
     async with engine.begin() as conn:  # a transaction, so SET LOCAL applies only here
         # keep scanning HNSW until enough rows pass the tenant filter (pgvector >= 0.8)
         await conn.execute(text("SET LOCAL hnsw.iterative_scan = relaxed_order"))
+        rows = await conn.execute(sql, params)
+        return [dict(r._mapping) for r in rows]
+
+
+def build_keyword_sql(
+    *,
+    source_types: list[str] | None = None,
+    service: str | None = None,
+    time_from: datetime | None = None,
+    time_to: datetime | None = None,
+):
+    """Full-text query on the generated content_tsv column (GIN index, migration 0003).
+
+    websearch_to_tsquery parses Google-like syntax and never raises on user input: plain words are
+    ANDed, "or" gives OR, "-word" excludes, "quoted phrase" matches a phrase. Same 'english' config as
+    the column, so the query is stemmed the same way as the documents.
+    """
+    where = _where(source_types=source_types, service=service, time_from=time_from, time_to=time_to)
+    return text(f"""
+        SELECT {_RESULT_COLUMNS},
+               ts_rank(content_tsv, query) AS rank
+        FROM worker.chunks, websearch_to_tsquery('english', :q) AS query
+        WHERE {where}
+          AND content_tsv @@ query
+        ORDER BY rank DESC, id                                  -- id: deterministic order for equal ranks
+        LIMIT :k
+    """)
+
+
+async def keyword_search(
+    engine: AsyncEngine,
+    *,
+    tenant_id: str,
+    query: str,                              # websearch syntax, e.g. 'HikariPool or "connection pool"'
+    k: int = 5,
+    source_types: list[str] | None = None,
+    service: str | None = None,
+    time_from: datetime | None = None,
+    time_to: datetime | None = None,
+) -> list[dict]:
+    """Same result keys as search_chunks, with "rank" (ts_rank, higher = better) instead of "distance"."""
+    sql = build_keyword_sql(source_types=source_types, service=service, time_from=time_from, time_to=time_to)
+    params = _params(tenant_id, k, source_types, service, time_from, time_to)
+    params["q"] = query
+    async with engine.connect() as conn:
         rows = await conn.execute(sql, params)
         return [dict(r._mapping) for r in rows]
 

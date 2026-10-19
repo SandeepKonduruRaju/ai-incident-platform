@@ -21,6 +21,11 @@ ENV EMBEDDING_MODEL=${EMBEDDING_MODEL} \
     EMBEDDING_CACHE_DIR=/opt/models
 RUN python -c "import os; from fastembed import TextEmbedding; TextEmbedding(os.environ['EMBEDDING_MODEL'], cache_dir=os.environ['EMBEDDING_CACHE_DIR'])" \
     && chown -R worker:worker /opt/models
+# Same for the cross-encoder reranker (~80MB), in its own layer: changing one model keeps the other cached.
+ARG RERANKER_MODEL=Xenova/ms-marco-MiniLM-L-6-v2
+ENV RERANKER_MODEL=${RERANKER_MODEL}
+RUN python -c "import os; from fastembed.rerank.cross_encoder import TextCrossEncoder; TextCrossEncoder(os.environ['RERANKER_MODEL'], cache_dir=os.environ['EMBEDDING_CACHE_DIR'])" \
+    && chown -R worker:worker /opt/models
 # From here on, never try to reach Hugging Face: a missing model fails fast instead of downloading.
 ENV HF_HUB_OFFLINE=1
 

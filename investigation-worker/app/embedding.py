@@ -11,6 +11,8 @@ import math
 from typing import Protocol
 
 DEFAULT_MODEL = "BAAI/bge-small-en-v1.5"
+# From the bge-*-v1.5 model card: prepend to short search queries, never to stored passages.
+BGE_QUERY_INSTRUCTION = "Represent this sentence for searching relevant passages: "
 
 
 class Embedder(Protocol):

@@ -2,6 +2,8 @@ from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.embedding import BGE_QUERY_INSTRUCTION
+
 
 class Settings(BaseSettings):
     """Typed configuration read from environment variables (like @ConfigurationProperties).
@@ -42,7 +44,19 @@ class Settings(BaseSettings):
     embedding_cache_dir: str | None = None
     # Prepended to search queries only (documents are embedded without it). The bge-*-v1.5 model card
     # recommends it for short-query -> passage retrieval; empty string = off.
-    embedding_query_instruction: str = "Represent this sentence for searching relevant passages: "
+    embedding_query_instruction: str = BGE_QUERY_INSTRUCTION
+
+    # --- Hybrid retrieval (section 2.5) ---
+    # Cross-encoder that re-orders the fused candidates. Baked into the Docker image like the embedding model.
+    reranker_model: str = "Xenova/ms-marco-MiniLM-L-6-v2"
+    # Logs and metrics are searched in [createdAt - before, createdAt + after) for the affected service.
+    retrieval_window_before_minutes: int = 120
+    retrieval_window_after_minutes: int = 30
+    retrieval_retrieve_k: int = 20   # candidates per retriever, and how many fused candidates get reranked
+    retrieval_final_k: int = 6       # evidence items handed to the LLM
+    # Max chunks per source type in the final selection; unused slots go to the next best chunks.
+    # Env var as JSON, e.g. RETRIEVAL_SOURCE_CAPS='{"log": 3, "runbook": 2, "incident": 1, "metric": 2}'
+    retrieval_source_caps: dict[str, int] = {"log": 3, "runbook": 2, "incident": 1, "metric": 2}
 
     log_level: str = "INFO"
 
