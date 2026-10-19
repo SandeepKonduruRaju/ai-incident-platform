@@ -1,0 +1,162 @@
+[
+  {
+    "source_id": "MET-acme-noise-02",
+    "tenant_id": "acme",
+    "source_type": "metric",
+    "service": "checkout-api",
+    "ts": "2026-09-12T00:00:00Z",
+    "summary": "checkout-api: Kafka consumer lag below 50 messages; no rebalances."
+  },
+  {
+    "source_id": "MET-acme-slow_downstream",
+    "tenant_id": "acme",
+    "source_type": "metric",
+    "service": "payment-service",
+    "ts": "2026-09-12T06:27:00Z",
+    "summary": "payment-service: p99 latency 220ms -> 19402ms from 2026-09-12 06:27 UTC; fraud-check p99 latency 80ms -> 1900ms over the same window; payment-service CPU and database metrics normal; retries to fraud-check 3x higher; error rate 49% (timeouts)."
+  },
+  {
+    "source_id": "MET-acme-noise-01",
+    "tenant_id": "acme",
+    "source_type": "metric",
+    "service": "payment-service",
+    "ts": "2026-09-17T00:00:00Z",
+    "summary": "payment-service: Kafka consumer lag below 50 messages; no rebalances."
+  },
+  {
+    "source_id": "MET-acme-dns_failure",
+    "tenant_id": "acme",
+    "source_type": "metric",
+    "service": "auth-service",
+    "ts": "2026-09-20T03:06:00Z",
+    "summary": "auth-service: outbound request failures at 43% with UnknownHostException from 2026-09-20 03:06 UTC for 18 minutes; CoreDNS p99 latency 2ms -> 1955ms and SERVFAIL responses rising; CPU and memory of auth-service normal."
+  },
+  {
+    "source_id": "MET-acme-memory_leak",
+    "tenant_id": "acme",
+    "source_type": "metric",
+    "service": "inventory-service",
+    "ts": "2026-09-24T12:18:00Z",
+    "summary": "inventory-service: container memory grows linearly by about 122Mi/hour since the deploy on 2026-09-24 12:18 UTC, reaching the 1024Mi limit; OOMKilled restarts every ~9 hours; GC time 2% -> 21%; traffic flat."
+  },
+  {
+    "source_id": "MET-acme-db_pool_exhausted",
+    "tenant_id": "acme",
+    "source_type": "metric",
+    "service": "payment-service",
+    "ts": "2026-09-24T22:20:00Z",
+    "summary": "payment-service on acme-prod-eu (eu-west-1): db.pool.active pinned at 20/20 for 27 minutes from 2026-09-24 22:20 UTC; db.pool.pending rose from 0 to 26; p99 latency 180ms -> 20527ms; HTTP 5xx rate 0.1% -> 93%. Application CPU normal (~40%), orders-db CPU normal."
+  },
+  {
+    "source_id": "MET-acme-noise-04",
+    "tenant_id": "acme",
+    "source_type": "metric",
+    "service": "inventory-service",
+    "ts": "2026-09-25T00:00:00Z",
+    "summary": "inventory-service: memory stable at 449Mi of 1024Mi limit; GC time under 2%."
+  },
+  {
+    "source_id": "MET-acme-noise-03",
+    "tenant_id": "acme",
+    "source_type": "metric",
+    "service": "auth-service",
+    "ts": "2026-09-28T00:00:00Z",
+    "summary": "auth-service: memory stable at 498Mi of 1024Mi limit; GC time under 2%."
+  },
+  {
+    "source_id": "MET-acme-bad_deploy",
+    "tenant_id": "acme",
+    "source_type": "metric",
+    "service": "checkout-api",
+    "ts": "2026-09-28T09:39:00Z",
+    "summary": "checkout-api: error rate jumped from 0.2% to 20% within 2 minutes of the v4.1.2 rollout at 2026-09-28 09:39 UTC (ArgoCD); errors only on pods running v4.1.2; pods still on v4.1.0 stay at 0.2%; latency and traffic unchanged."
+  },
+  {
+    "source_id": "MET-acme-expired_tls_cert",
+    "tenant_id": "acme",
+    "source_type": "metric",
+    "service": "checkout-api",
+    "ts": "2026-09-28T15:34:00Z",
+    "summary": "checkout-api: HTTPS success rate dropped from 99.9% to 7% exactly at 2026-09-28 15:34 UTC (the certificate notAfter time); TLS handshake errors 41k/min; traffic and latency normal before the drop; certificate-expiry gauge for api.acme.example reached 0 days."
+  },
+  {
+    "source_id": "MET-globex-noise-03",
+    "tenant_id": "globex",
+    "source_type": "metric",
+    "service": "auth-service",
+    "ts": "2026-09-06T00:00:00Z",
+    "summary": "auth-service: CPU steady between 25% and 47% all week; no anomalies."
+  },
+  {
+    "source_id": "MET-globex-noise-01",
+    "tenant_id": "globex",
+    "source_type": "metric",
+    "service": "payment-service",
+    "ts": "2026-09-08T00:00:00Z",
+    "summary": "payment-service: Kafka consumer lag below 50 messages; no rebalances."
+  },
+  {
+    "source_id": "MET-globex-memory_leak",
+    "tenant_id": "globex",
+    "source_type": "metric",
+    "service": "checkout-api",
+    "ts": "2026-09-08T01:41:00Z",
+    "summary": "checkout-api: container memory grows linearly by about 50Mi/hour since the deploy on 2026-09-08 01:41 UTC, reaching the 2048Mi limit; OOMKilled restarts every ~7 hours; GC time 2% -> 82%; traffic flat."
+  },
+  {
+    "source_id": "MET-globex-bad_deploy",
+    "tenant_id": "globex",
+    "source_type": "metric",
+    "service": "payment-service",
+    "ts": "2026-09-09T10:44:00Z",
+    "summary": "payment-service: error rate jumped from 0.2% to 21% within 2 minutes of the v2.0.4 rollout at 2026-09-09 10:44 UTC (Spinnaker); errors only on pods running v2.0.4; pods still on v2.0.0 stay at 0.2%; latency and traffic unchanged."
+  },
+  {
+    "source_id": "MET-globex-db_pool_exhausted",
+    "tenant_id": "globex",
+    "source_type": "metric",
+    "service": "inventory-service",
+    "ts": "2026-09-11T00:59:00Z",
+    "summary": "inventory-service on globex-k8s-a (us-east-2): db.pool.active pinned at 50/50 for 27 minutes from 2026-09-11 00:59 UTC; db.pool.pending rose from 0 to 15; p99 latency 180ms -> 18573ms; HTTP 5xx rate 0.1% -> 45%. Application CPU normal (~40%), ledger-db CPU normal."
+  },
+  {
+    "source_id": "MET-globex-dns_failure",
+    "tenant_id": "globex",
+    "source_type": "metric",
+    "service": "payment-service",
+    "ts": "2026-09-11T08:59:00Z",
+    "summary": "payment-service: outbound request failures at 21% with UnknownHostException from 2026-09-11 08:59 UTC for 18 minutes; CoreDNS p99 latency 2ms -> 16345ms and SERVFAIL responses rising; CPU and memory of payment-service normal."
+  },
+  {
+    "source_id": "MET-globex-noise-02",
+    "tenant_id": "globex",
+    "source_type": "metric",
+    "service": "checkout-api",
+    "ts": "2026-09-12T00:00:00Z",
+    "summary": "checkout-api: memory stable at 537Mi of 2048Mi limit; GC time under 2%."
+  },
+  {
+    "source_id": "MET-globex-expired_tls_cert",
+    "tenant_id": "globex",
+    "source_type": "metric",
+    "service": "auth-service",
+    "ts": "2026-09-21T05:09:00Z",
+    "summary": "auth-service: HTTPS success rate dropped from 99.9% to 9% exactly at 2026-09-21 05:09 UTC (the certificate notAfter time); TLS handshake errors 48k/min; traffic and latency normal before the drop; certificate-expiry gauge for pay.globex.example reached 0 days."
+  },
+  {
+    "source_id": "MET-globex-slow_downstream",
+    "tenant_id": "globex",
+    "source_type": "metric",
+    "service": "checkout-api",
+    "ts": "2026-09-21T13:50:00Z",
+    "summary": "checkout-api: p99 latency 220ms -> 4518ms from 2026-09-21 13:50 UTC; tax-service p99 latency 80ms -> 1900ms over the same window; checkout-api CPU and database metrics normal; retries to tax-service 3x higher; error rate 57% (timeouts)."
+  },
+  {
+    "source_id": "MET-globex-noise-04",
+    "tenant_id": "globex",
+    "source_type": "metric",
+    "service": "inventory-service",
+    "ts": "2026-09-23T00:00:00Z",
+    "summary": "inventory-service: memory stable at 440Mi of 2048Mi limit; GC time under 2%."
+  }
+]

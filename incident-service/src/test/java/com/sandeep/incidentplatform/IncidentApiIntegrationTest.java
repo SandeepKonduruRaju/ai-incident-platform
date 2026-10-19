@@ -4,6 +4,8 @@ import com.jayway.jsonpath.JsonPath;
 import com.sandeep.incidentplatform.model.Incident;
 import com.sandeep.incidentplatform.model.IncidentSeverity;
 import com.sandeep.incidentplatform.model.IncidentStatus;
+import com.sandeep.incidentplatform.outbox.OutboxEvent;
+import com.sandeep.incidentplatform.outbox.OutboxEventRepository;
 import com.sandeep.incidentplatform.repository.IncidentRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -15,14 +17,24 @@ import org.springframework.http.MediaType;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static com.sandeep.incidentplatform.TestJwt.asTenant;
 import static com.sandeep.incidentplatform.TestJwt.asUser;
@@ -52,8 +64,15 @@ class IncidentApiIntegrationTest {
     @Autowired
     private IncidentRepository incidentRepository;
 
+    @Autowired
+    private OutboxEventRepository outboxEventRepository;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
+
     @BeforeEach
     void cleanDatabase() {
+        outboxEventRepository.deleteAll();
         incidentRepository.deleteAll();
     }
 
@@ -74,6 +93,14 @@ class IncidentApiIntegrationTest {
                 .andExpect(jsonPath("$.status").value("OPEN"))
                 .andReturn();
         String id = JsonPath.read(created.getResponse().getContentAsString(), "$.id");
+
+        // The same transaction stored one unsent outbox row for this incident (the relay is off in tests)
+        List<OutboxEvent> outbox = outboxEventRepository.findAll();
+        assertEquals(1, outbox.size());
+        assertEquals(UUID.fromString(id), outbox.get(0).aggregateId());
+        assertEquals("IncidentCreated", outbox.get(0).eventType());
+        assertNull(outbox.get(0).publishedAt());
+        assertEquals(1, outboxEventRepository.countByPublishedAtIsNull());
 
         // Read back
         mockMvc.perform(get("/api/v1/incidents/{id}", id).with(asUser()))
@@ -175,5 +202,50 @@ class IncidentApiIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("OPEN"));
         assertEquals("acme", incidentRepository.findById(UUID.fromString(id)).orElseThrow().tenantId());
+    }
+
+    // Lives here, not in OutboxKafkaIntegrationTest: the relay is off in this class, so the test is
+    // the only one locking outbox rows. With the relay running it would race us for the same rows.
+    @Test
+    void shouldSkipOutboxRowsLockedByAnotherTransaction() throws Exception {
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        for (int i = 0; i < 3; i++) {
+            outboxEventRepository.save(new OutboxEvent(UUID.randomUUID(), UUID.randomUUID(),
+                    "IncidentCreated", "incident-events", "{}", now.plusMillis(i)));
+        }
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        CountDownLatch locked = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        ExecutorService threads = Executors.newFixedThreadPool(2);
+        try {
+            // Transaction A locks all 3 rows and holds the locks until we release it
+            Future<Integer> first = threads.submit(() -> tx.execute(status -> {
+                int size = outboxEventRepository.lockUnpublishedBatch(50).size();
+                locked.countDown();
+                await(release);
+                return size;
+            }));
+            assertTrue(locked.await(10, TimeUnit.SECONDS), "transaction A locked the rows");
+
+            // Transaction B, while A still holds the locks: SKIP LOCKED returns nothing instead of waiting.
+            // Without SKIP LOCKED it would block until A ends, and get() fails after 5 s instead of hanging.
+            Future<Integer> second = threads.submit(() ->
+                    tx.execute(status -> outboxEventRepository.lockUnpublishedBatch(50).size()));
+            assertEquals(0, second.get(5, TimeUnit.SECONDS));
+
+            release.countDown();
+            assertEquals(3, first.get(5, TimeUnit.SECONDS));
+        } finally {
+            release.countDown();
+            threads.shutdownNow();
+        }
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            latch.await(10, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 }

@@ -1,6 +1,7 @@
 package com.sandeep.incidentplatform;
 
 import com.sandeep.incidentplatform.dto.CreateIncidentRequest;
+import com.sandeep.incidentplatform.outbox.OutboxEventRepository;
 import com.sandeep.incidentplatform.model.Incident;
 import com.sandeep.incidentplatform.model.IncidentSeverity;
 import com.sandeep.incidentplatform.model.IncidentStatus;
@@ -16,6 +17,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import tools.jackson.databind.json.JsonMapper;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -39,11 +41,14 @@ class IncidentServiceTest {
     @Mock
     private IncidentRepository incidentRepository;
 
+    @Mock
+    private OutboxEventRepository outboxEventRepository;
+
     private IncidentService service;
 
     @BeforeEach
     void setUp() {
-        service = new IncidentService(incidentRepository);
+        service = new IncidentService(incidentRepository, outboxEventRepository, JsonMapper.builder().build());
     }
 
     @Test

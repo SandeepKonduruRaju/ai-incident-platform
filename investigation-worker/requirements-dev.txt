@@ -1,0 +1,9 @@
+# Local development and tests: runtime deps plus test tools (like Maven's test scope).
+-r requirements.txt
+pytest==9.1.1
+# Runs "async def" tests and fixtures on an event loop.
+pytest-asyncio==1.4.0
+# HTTP client used by FastAPI's TestClient (Starlette 1.8 deprecates plain httpx for this).
+httpx2==2.13.1
+# Real Kafka and PostgreSQL in Docker for the integration tests.
+testcontainers==4.15.0

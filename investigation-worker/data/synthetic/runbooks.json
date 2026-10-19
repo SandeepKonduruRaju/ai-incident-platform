@@ -1,0 +1,146 @@
+[
+  {
+    "source_id": "RB-acme-bad_deploy",
+    "tenant_id": "acme",
+    "source_type": "runbook",
+    "service": "checkout-api",
+    "title": "Bad deployment and rollback (checkout-api)",
+    "content": "# Runbook: rolling back a bad checkout-api deployment\n\nOwner: #acme-oncall | Deploy tool: ArgoCD | Namespace: payments\n\n## Symptoms\n- Error rate rises within minutes of a rollout; new pods fail readiness or crash-loop.\n- Errors are concentrated on pods with the new version label.\n\n## Diagnosis\n1. Compare error rate by `version` label: old pods healthy, new pods failing means the release.\n2. Check ArgoCD history for the last rollout and the diff (code, config, feature flags).\n3. Read the first stack trace after the deploy; a new exception type points at the change.\n\n## Mitigation\n- Roll back to the last good version: `kubectl rollout undo deployment/checkout-api -n payments`\n  (or \"Rollback\" in ArgoCD).\n- If a feature flag caused it, switch the flag off instead of rolling back.\n\n## Prevention\n- Canary 5% of traffic for 15 minutes with automatic rollback on error-rate increase.\n- Validate configuration at startup and fail the readiness probe on bad config.\n"
+  },
+  {
+    "source_id": "RB-acme-db_pool_exhausted",
+    "tenant_id": "acme",
+    "source_type": "runbook",
+    "service": "payment-service",
+    "title": "Database connection pool exhausted (payment-service)",
+    "content": "# Runbook: payment-service database connection pool exhausted\n\nOwner: #acme-oncall | Cluster: acme-prod-eu (eu-west-1) | Database: orders-db\n\n## Symptoms\n- Logs: \"Connection is not available, request timed out\" from HikariPool; JDBC timeouts on requests.\n- Metric db.pool.active flat at the maximum (20) while db.pool.pending keeps growing.\n- 5xx errors rise, but CPU on the service and on orders-db looks normal.\n\n## Diagnosis\n1. Count sessions on orders-db: `SELECT state, count(*) FROM pg_stat_activity GROUP BY state;`\n2. Look for long-running or idle-in-transaction sessions and lock waits in `pg_locks`.\n3. Check recent changes that hold connections longer (missing transaction boundaries, N+1 queries).\n\n## Mitigation\n- Terminate idle-in-transaction sessions older than 5 minutes.\n- Temporarily raise maximumPoolSize from 20 to 30, restarting pods one at a time.\n- Shed load: enable the rate limit on write endpoints.\n\n## Prevention\n- Set statement_timeout and idle_in_transaction_session_timeout.\n- Alert when pool usage stays above 80% for 5 minutes.\n"
+  },
+  {
+    "source_id": "RB-acme-dns_failure",
+    "tenant_id": "acme",
+    "source_type": "runbook",
+    "service": "auth-service",
+    "title": "DNS resolution failures (auth-service)",
+    "content": "# Runbook: DNS resolution failures in acme-prod-eu\n\nOwner: #acme-oncall | Upstream resolver: 10.20.0.2\n\n## Symptoms\n- UnknownHostException / \"Temporary failure in name resolution\" for internal names like payments.internal.acme.\n- Many services fail at once while their own CPU and memory look normal.\n\n## Diagnosis\n1. From an affected pod: `kubectl exec -n payments <pod> -- nslookup payments.internal.acme`.\n2. Check CoreDNS pods: restarts, OOM, and logs for upstream timeouts to 10.20.0.2.\n3. Check the pod's resolv.conf (ndots, search domains): high ndots multiplies lookups.\n\n## Mitigation\n- Scale CoreDNS up and restart unhealthy CoreDNS pods.\n- Fail over to the secondary resolver if 10.20.0.2 is down.\n\n## Prevention\n- Run NodeLocal DNSCache; use fully qualified names for internal calls.\n- Alert on CoreDNS SERVFAIL rate and latency.\n"
+  },
+  {
+    "source_id": "RB-acme-expired_tls_cert",
+    "tenant_id": "acme",
+    "source_type": "runbook",
+    "service": "checkout-api",
+    "title": "Expired TLS certificate (api.acme.example)",
+    "content": "# Runbook: expired TLS certificate for api.acme.example\n\nOwner: #acme-oncall | Certificate: acme-api-tls (cert-manager)\n\n## Symptoms\n- Sudden, total failure of HTTPS calls at one exact time; SSLHandshakeException \"certificate expired\".\n- No deploy or traffic change before the failure.\n\n## Diagnosis\n1. Check the dates: `openssl s_client -connect api.acme.example:443 -servername api.acme.example | openssl x509 -noout -dates`.\n2. `kubectl describe certificate acme-api-tls -n payments`: why did renewal fail (ACME challenge, credentials)?\n3. Make sure the full chain (intermediate certificate) is served.\n\n## Mitigation\n- Force renewal: `cmctl renew acme-api-tls -n payments`, then restart the ingress or pods to load the new secret.\n- If renewal is blocked, install a manually issued certificate as a stopgap.\n\n## Prevention\n- Alert at 21 and 7 days before expiry; test renewal in staging.\n"
+  },
+  {
+    "source_id": "RB-acme-memory_leak",
+    "tenant_id": "acme",
+    "source_type": "runbook",
+    "service": "inventory-service",
+    "title": "Memory leak and OOMKilled pods (inventory-service)",
+    "content": "# Runbook: inventory-service memory leak / OOMKilled\n\nOwner: #acme-oncall | Memory limit: 1024Mi | Cluster: acme-prod-eu\n\n## Symptoms\n- Memory climbs steadily (a straight line, not spikes) until pods are OOMKilled (exit code 137).\n- GC time rises before each restart; latency gets worse as the heap fills.\n\n## Diagnosis\n1. Plot memory per pod since the last deploy: a constant slope means a leak.\n2. Take a heap dump before the kill: `jcmd <pid> GC.heap_dump /tmp/heap.hprof`.\n3. Check in-memory caches and listener registries for missing size limits.\n\n## Mitigation\n- Rolling restart to buy time; temporarily raise the limit above 1024Mi.\n- Roll back if the leak started with a deploy.\n\n## Prevention\n- Bound every cache (maximumSize plus expiry).\n- Alert on memory slope, not only on absolute usage.\n"
+  },
+  {
+    "source_id": "RB-acme-onboard_new_service",
+    "tenant_id": "acme",
+    "source_type": "runbook",
+    "service": null,
+    "title": "Onboarding a new service to acme-prod-eu",
+    "content": "# Runbook: onboarding a new service\n\nOwner: #acme-oncall\n\n## Checklist\n- Namespace, resource requests and limits, readiness and liveness probes.\n- Dashboards and alerts from the standard template.\n\n## Go-live\n- Load test at 2x expected traffic before enabling it for customers.\n"
+  },
+  {
+    "source_id": "RB-acme-rotate_api_keys",
+    "tenant_id": "acme",
+    "source_type": "runbook",
+    "service": null,
+    "title": "Rotating partner API keys",
+    "content": "# Runbook: rotating partner API keys\n\nOwner: #acme-oncall\n\n## When\n- Every 90 days, or immediately if a key may have leaked.\n\n## Steps\n1. Create the new key in the secrets manager (eu-west-1).\n2. Deploy services with both keys accepted for 24 hours.\n3. Revoke the old key and confirm no traffic uses it.\n"
+  },
+  {
+    "source_id": "RB-acme-scale_out_for_campaign",
+    "tenant_id": "acme",
+    "source_type": "runbook",
+    "service": null,
+    "title": "Scaling out before a marketing campaign",
+    "content": "# Runbook: scaling out before a campaign\n\nOwner: #acme-oncall\n\n## Before\n- Raise HPA minimum replicas for checkout-api and payment-service one day before.\n- Pre-warm caches and confirm database headroom.\n\n## After\n- Return HPA settings to normal and review the cost report.\n"
+  },
+  {
+    "source_id": "RB-acme-slow_downstream",
+    "tenant_id": "acme",
+    "source_type": "runbook",
+    "service": "payment-service",
+    "title": "Slow downstream dependency (fraud-check)",
+    "content": "# Runbook: payment-service slowed down by fraud-check\n\nOwner: #acme-oncall | Dependency: fraud-check\n\n## Symptoms\n- payment-service latency rises while its own CPU, memory and database look normal.\n- Timeouts and retries towards fraud-check; circuit breaker opening.\n\n## Diagnosis\n1. Compare payment-service latency with fraud-check latency on the same graph: same shape means the dependency.\n2. Check for a retry storm: retries without jitter multiply load on a slow dependency.\n3. Ask the fraud-check owners about deploys or database changes.\n\n## Mitigation\n- Lower the timeout and the number of retries; serve the fallback response.\n- Open the circuit breaker manually if fraud-check stays slow.\n\n## Prevention\n- Per-dependency timeouts, jittered backoff, bulkheads and circuit breakers.\n"
+  },
+  {
+    "source_id": "RB-globex-bad_deploy",
+    "tenant_id": "globex",
+    "source_type": "runbook",
+    "service": "payment-service",
+    "title": "Bad deployment and rollback (payment-service)",
+    "content": "# Runbook: rolling back a bad payment-service deployment\n\nOwner: #globex-sre | Deploy tool: Spinnaker | Namespace: prod\n\n## Symptoms\n- Error rate rises within minutes of a rollout; new pods fail readiness or crash-loop.\n- Errors are concentrated on pods with the new version label.\n\n## Diagnosis\n1. Compare error rate by `version` label: old pods healthy, new pods failing means the release.\n2. Check Spinnaker history for the last rollout and the diff (code, config, feature flags).\n3. Read the first stack trace after the deploy; a new exception type points at the change.\n\n## Mitigation\n- Roll back to the last good version: `kubectl rollout undo deployment/payment-service -n prod`\n  (or \"Rollback\" in Spinnaker).\n- If a feature flag caused it, switch the flag off instead of rolling back.\n\n## Prevention\n- Canary 5% of traffic for 15 minutes with automatic rollback on error-rate increase.\n- Validate configuration at startup and fail the readiness probe on bad config.\n"
+  },
+  {
+    "source_id": "RB-globex-db_pool_exhausted",
+    "tenant_id": "globex",
+    "source_type": "runbook",
+    "service": "inventory-service",
+    "title": "Database connection pool exhausted (inventory-service)",
+    "content": "# Runbook: inventory-service database connection pool exhausted\n\nOwner: #globex-sre | Cluster: globex-k8s-a (us-east-2) | Database: ledger-db\n\n## Symptoms\n- Logs: \"Connection is not available, request timed out\" from HikariPool; JDBC timeouts on requests.\n- Metric db.pool.active flat at the maximum (50) while db.pool.pending keeps growing.\n- 5xx errors rise, but CPU on the service and on ledger-db looks normal.\n\n## Diagnosis\n1. Count sessions on ledger-db: `SELECT state, count(*) FROM pg_stat_activity GROUP BY state;`\n2. Look for long-running or idle-in-transaction sessions and lock waits in `pg_locks`.\n3. Check recent changes that hold connections longer (missing transaction boundaries, N+1 queries).\n\n## Mitigation\n- Terminate idle-in-transaction sessions older than 5 minutes.\n- Temporarily raise maximumPoolSize from 50 to 75, restarting pods one at a time.\n- Shed load: enable the rate limit on write endpoints.\n\n## Prevention\n- Set statement_timeout and idle_in_transaction_session_timeout.\n- Alert when pool usage stays above 80% for 5 minutes.\n"
+  },
+  {
+    "source_id": "RB-globex-dns_failure",
+    "tenant_id": "globex",
+    "source_type": "runbook",
+    "service": "payment-service",
+    "title": "DNS resolution failures (payment-service)",
+    "content": "# Runbook: DNS resolution failures in globex-k8s-a\n\nOwner: #globex-sre | Upstream resolver: 172.16.0.10\n\n## Symptoms\n- UnknownHostException / \"Temporary failure in name resolution\" for internal names like ledger.svc.globex.local.\n- Many services fail at once while their own CPU and memory look normal.\n\n## Diagnosis\n1. From an affected pod: `kubectl exec -n prod <pod> -- nslookup ledger.svc.globex.local`.\n2. Check CoreDNS pods: restarts, OOM, and logs for upstream timeouts to 172.16.0.10.\n3. Check the pod's resolv.conf (ndots, search domains): high ndots multiplies lookups.\n\n## Mitigation\n- Scale CoreDNS up and restart unhealthy CoreDNS pods.\n- Fail over to the secondary resolver if 172.16.0.10 is down.\n\n## Prevention\n- Run NodeLocal DNSCache; use fully qualified names for internal calls.\n- Alert on CoreDNS SERVFAIL rate and latency.\n"
+  },
+  {
+    "source_id": "RB-globex-expired_tls_cert",
+    "tenant_id": "globex",
+    "source_type": "runbook",
+    "service": "auth-service",
+    "title": "Expired TLS certificate (pay.globex.example)",
+    "content": "# Runbook: expired TLS certificate for pay.globex.example\n\nOwner: #globex-sre | Certificate: globex-pay-cert (cert-manager)\n\n## Symptoms\n- Sudden, total failure of HTTPS calls at one exact time; SSLHandshakeException \"certificate expired\".\n- No deploy or traffic change before the failure.\n\n## Diagnosis\n1. Check the dates: `openssl s_client -connect pay.globex.example:443 -servername pay.globex.example | openssl x509 -noout -dates`.\n2. `kubectl describe certificate globex-pay-cert -n prod`: why did renewal fail (ACME challenge, credentials)?\n3. Make sure the full chain (intermediate certificate) is served.\n\n## Mitigation\n- Force renewal: `cmctl renew globex-pay-cert -n prod`, then restart the ingress or pods to load the new secret.\n- If renewal is blocked, install a manually issued certificate as a stopgap.\n\n## Prevention\n- Alert at 21 and 7 days before expiry; test renewal in staging.\n"
+  },
+  {
+    "source_id": "RB-globex-memory_leak",
+    "tenant_id": "globex",
+    "source_type": "runbook",
+    "service": "checkout-api",
+    "title": "Memory leak and OOMKilled pods (checkout-api)",
+    "content": "# Runbook: checkout-api memory leak / OOMKilled\n\nOwner: #globex-sre | Memory limit: 2048Mi | Cluster: globex-k8s-a\n\n## Symptoms\n- Memory climbs steadily (a straight line, not spikes) until pods are OOMKilled (exit code 137).\n- GC time rises before each restart; latency gets worse as the heap fills.\n\n## Diagnosis\n1. Plot memory per pod since the last deploy: a constant slope means a leak.\n2. Take a heap dump before the kill: `jcmd <pid> GC.heap_dump /tmp/heap.hprof`.\n3. Check in-memory caches and listener registries for missing size limits.\n\n## Mitigation\n- Rolling restart to buy time; temporarily raise the limit above 2048Mi.\n- Roll back if the leak started with a deploy.\n\n## Prevention\n- Bound every cache (maximumSize plus expiry).\n- Alert on memory slope, not only on absolute usage.\n"
+  },
+  {
+    "source_id": "RB-globex-onboard_new_service",
+    "tenant_id": "globex",
+    "source_type": "runbook",
+    "service": null,
+    "title": "Onboarding a new service to globex-k8s-a",
+    "content": "# Runbook: onboarding a new service\n\nOwner: #globex-sre\n\n## Checklist\n- Namespace, resource requests and limits, readiness and liveness probes.\n- Dashboards and alerts from the standard template.\n\n## Go-live\n- Load test at 2x expected traffic before enabling it for customers.\n"
+  },
+  {
+    "source_id": "RB-globex-rotate_api_keys",
+    "tenant_id": "globex",
+    "source_type": "runbook",
+    "service": null,
+    "title": "Rotating partner API keys",
+    "content": "# Runbook: rotating partner API keys\n\nOwner: #globex-sre\n\n## When\n- Every 90 days, or immediately if a key may have leaked.\n\n## Steps\n1. Create the new key in the secrets manager (us-east-2).\n2. Deploy services with both keys accepted for 24 hours.\n3. Revoke the old key and confirm no traffic uses it.\n"
+  },
+  {
+    "source_id": "RB-globex-scale_out_for_campaign",
+    "tenant_id": "globex",
+    "source_type": "runbook",
+    "service": null,
+    "title": "Scaling out before a marketing campaign",
+    "content": "# Runbook: scaling out before a campaign\n\nOwner: #globex-sre\n\n## Before\n- Raise HPA minimum replicas for checkout-api and payment-service one day before.\n- Pre-warm caches and confirm database headroom.\n\n## After\n- Return HPA settings to normal and review the cost report.\n"
+  },
+  {
+    "source_id": "RB-globex-slow_downstream",
+    "tenant_id": "globex",
+    "source_type": "runbook",
+    "service": "checkout-api",
+    "title": "Slow downstream dependency (tax-service)",
+    "content": "# Runbook: checkout-api slowed down by tax-service\n\nOwner: #globex-sre | Dependency: tax-service\n\n## Symptoms\n- checkout-api latency rises while its own CPU, memory and database look normal.\n- Timeouts and retries towards tax-service; circuit breaker opening.\n\n## Diagnosis\n1. Compare checkout-api latency with tax-service latency on the same graph: same shape means the dependency.\n2. Check for a retry storm: retries without jitter multiply load on a slow dependency.\n3. Ask the tax-service owners about deploys or database changes.\n\n## Mitigation\n- Lower the timeout and the number of retries; serve the fallback response.\n- Open the circuit breaker manually if tax-service stays slow.\n\n## Prevention\n- Per-dependency timeouts, jittered backoff, bulkheads and circuit breakers.\n"
+  }
+]
