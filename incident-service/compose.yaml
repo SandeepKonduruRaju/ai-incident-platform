@@ -114,6 +114,39 @@ services:
     command: ["python", "-m", "app.ingest"]
     restart: "no"
 
+  # The Java API, built from ./Dockerfile. "docker compose up -d --build" now starts the whole stack.
+  # To run it with .\mvnw.cmd spring-boot:run instead: "docker compose stop incident-service" first (it
+  # uses port 8080), or publish this container elsewhere with $env:INCIDENT_SERVICE_PORT = "8081".
+  incident-service:
+    build:
+      context: .
+    image: incident-service:local
+    container_name: incident-service
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully   # topics exist before the outbox relay sends
+      investigation-worker:
+        condition: service_healthy
+    environment:
+      # Inside the compose network: service names and the INTERNAL Kafka listener, not localhost.
+      DB_URL: jdbc:postgresql://postgres:5432/incident_platform
+      DB_USERNAME: incident_app
+      DB_PASSWORD: localpass   # local container only (same as POSTGRES_PASSWORD above)
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      INVESTIGATION_WORKER_BASE_URL: http://investigation-worker:8000
+      # DEV-ONLY defaults (local stack only), overridable from the host environment or incident-service/.env.
+      JWT_SECRET: ${JWT_SECRET:-dev-only-jwt-secret-change-me-0123456789abcdef}
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-dev-only-internal-token-change-me}
+      # dev = enables POST /api/v1/dev/token; never set it in a real deployment.
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev}
+    ports:
+      - "${INCIDENT_SERVICE_PORT:-8080}:8080"
+    # The image's HEALTHCHECK (curl /api/v1/health) is used as is.
+
 volumes:
   incidents-data:
   kafka-data:

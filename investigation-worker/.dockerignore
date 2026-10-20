@@ -3,3 +3,14 @@ __pycache__
 .pytest_cache
 tests
 .env
+# Local-only output and tools (section 3.3)
+.env.*
+.eval_cache
+reports
+test-results
+.ruff_cache
+scratch_*.py
+*.log
+.git
+Dockerfile
+.dockerignore

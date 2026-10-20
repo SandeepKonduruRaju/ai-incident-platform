@@ -32,7 +32,8 @@ Kafka) · Flyway · JUnit 5, MockMvc, Testcontainers.
 **investigation-worker**: Python 3.13 · FastAPI · aiokafka · SQLAlchemy async + asyncpg · Alembic ·
 pgvector · fastembed (bge-small embeddings, MiniLM cross-encoder, ONNX on CPU) · LangGraph · Anthropic
 SDK · pytest + Testcontainers.
-**Infrastructure**: PostgreSQL 18 + pgvector, Kafka 4.1 (KRaft), Docker Compose.
+**Infrastructure**: PostgreSQL 18 + pgvector, Kafka 4.1 (KRaft), Docker (multi-stage, non-root images on
+ghcr.io), Docker Compose, GitHub Actions (tests, ruff, Trivy image scan).
 
 ## Key design decisions
 
@@ -63,20 +64,19 @@ Full report, per-case results and caveats (small N, same-model judge): [docs/eva
 Prerequisites: Docker Desktop, Java 17, Python 3.13.
 
 ```powershell
-# 1. Infrastructure + worker (PostgreSQL 5433, Kafka 9092, worker 8001); loads the synthetic evidence.
+# 1. The whole stack: PostgreSQL 5433, Kafka 9092, worker 8001, API 8080 (+ loads the synthetic evidence).
+#    Local-only dev defaults; see incident-service/.env.example.
 cd incident-service
 $env:LLM_PROVIDER = "fake"            # canned answers, no API key, no cost ("anthropic" for real Claude)
 docker compose up -d --build
+docker compose ps                     # wait until incident-service is "healthy" (~40 s)
 
-# 2. The API (http://localhost:8080). Local-only values; see incident-service/.env.example.
-$env:DB_URL = "jdbc:postgresql://localhost:5433/incident_platform"
-$env:DB_PASSWORD = "localpass"
-$env:JWT_SECRET = "<any string of at least 32 characters>"
-$env:SPRING_PROFILES_ACTIVE = "dev"   # enables the local token endpoint
-$env:INTERNAL_API_TOKEN = "dev-only-internal-token-change-me"
-.\mvnw.cmd spring-boot:run
+# Optional: run the API from source instead (docker compose stop incident-service first)
+#   $env:DB_URL = "jdbc:postgresql://localhost:5433/incident_platform"; $env:DB_PASSWORD = "localpass"
+#   $env:JWT_SECRET = "<32+ chars>"; $env:SPRING_PROFILES_ACTIVE = "dev"
+#   $env:INTERNAL_API_TOKEN = "dev-only-internal-token-change-me"; .\mvnw.cmd spring-boot:run
 
-# 3. In a second terminal: token, incident, investigation.
+# 2. Token, incident, investigation.
 $token = (Invoke-RestMethod -Method Post http://localhost:8080/api/v1/dev/token -ContentType "application/json" `
   -Body '{"subject":"alice","tenantId":"acme","roles":["RESPONDER"]}').accessToken
 $h = @{ Authorization = "Bearer $token" }
@@ -115,7 +115,8 @@ worker's logs.
 - **Shared-secret service auth**: one static `X-Internal-Token`; no mTLS or per-service identity yet.
 - **Time-windowed evidence**: logs and metrics are searched around `createdAt`; an incident filed long
   after its symptoms gets only runbooks and past incidents.
-- **Not deployed yet**: no CI/CD, cloud infrastructure or UI (Milestone 3).
+- **Not deployed yet**: CI tests, scans and publishes the images, but there is no cloud environment or UI yet
+  (Milestone 3).
 
 ## Repository layout
 

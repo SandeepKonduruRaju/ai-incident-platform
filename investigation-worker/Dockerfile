@@ -1,4 +1,7 @@
-FROM python:3.13-slim
+# syntax=docker/dockerfile:1
+# Single stage on purpose: every dependency installs from a prebuilt wheel (no compiler in the image), so a
+# separate wheel-building stage would remove nothing. Pinned to a patch release on Debian 13 (trixie).
+FROM python:3.13.16-slim-trixie
 
 # No .pyc files in the image; print logs immediately instead of buffering them.
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -38,6 +41,19 @@ COPY data ./data
 USER worker
 
 EXPOSE 8000
+
+# OCI labels last: build args change on every commit and would otherwise bust the cache of later layers.
+ARG VERSION=dev
+ARG REVISION=unknown
+ARG CREATED=unknown
+ARG SOURCE=https://github.com/SandeepKonduruRaju/ai-incident-platform
+LABEL org.opencontainers.image.title="investigation-worker" \
+      org.opencontainers.image.description="Kafka consumer: hybrid retrieval + LangGraph/Claude incident investigation" \
+      org.opencontainers.image.source="${SOURCE}" \
+      org.opencontainers.image.revision="${REVISION}" \
+      org.opencontainers.image.created="${CREATED}" \
+      org.opencontainers.image.version="${VERSION}"
+
 # Migrate first (like Flyway on Spring Boot startup), then serve. "exec" makes uvicorn PID 1,
 # so it receives Docker's SIGTERM and runs the lifespan shutdown (graceful consumer stop).
 CMD ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000"]
