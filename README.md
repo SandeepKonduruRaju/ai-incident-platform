@@ -32,7 +32,8 @@ Kafka) · Flyway · JUnit 5, MockMvc, Testcontainers.
 **investigation-worker**: Python 3.13 · FastAPI · aiokafka · SQLAlchemy async + asyncpg · Alembic ·
 pgvector · fastembed (bge-small embeddings, MiniLM cross-encoder, ONNX on CPU) · LangGraph · Anthropic
 SDK · pytest + Testcontainers.
-**Infrastructure**: PostgreSQL 18 + pgvector, Kafka 4.1 (KRaft), Docker Compose.
+**Infrastructure**: PostgreSQL 18 + pgvector, Kafka 4.1 (KRaft), Docker (multi-stage, non-root images on
+ghcr.io), Docker Compose, GitHub Actions (tests, ruff, Trivy image scan).
 
 ## Key design decisions
 
@@ -63,20 +64,19 @@ Full report, per-case results and caveats (small N, same-model judge): [docs/eva
 Prerequisites: Docker Desktop, Java 17, Python 3.13.
 
 ```powershell
-# 1. Infrastructure + worker (PostgreSQL 5433, Kafka 9092, worker 8001); loads the synthetic evidence.
+# 1. The whole stack: PostgreSQL 5433, Kafka 9092, worker 8001, API 8080 (+ loads the synthetic evidence).
+#    Local-only dev defaults; see incident-service/.env.example.
 cd incident-service
 $env:LLM_PROVIDER = "fake"            # canned answers, no API key, no cost ("anthropic" for real Claude)
 docker compose up -d --build
+docker compose ps                     # wait until incident-service is "healthy" (~40 s)
 
-# 2. The API (http://localhost:8080). Local-only values; see incident-service/.env.example.
-$env:DB_URL = "jdbc:postgresql://localhost:5433/incident_platform"
-$env:DB_PASSWORD = "localpass"
-$env:JWT_SECRET = "<any string of at least 32 characters>"
-$env:SPRING_PROFILES_ACTIVE = "dev"   # enables the local token endpoint
-$env:INTERNAL_API_TOKEN = "dev-only-internal-token-change-me"
-.\mvnw.cmd spring-boot:run
+# Optional: run the API from source instead (docker compose stop incident-service first)
+#   $env:DB_URL = "jdbc:postgresql://localhost:5433/incident_platform"; $env:DB_PASSWORD = "localpass"
+#   $env:JWT_SECRET = "<32+ chars>"; $env:SPRING_PROFILES_ACTIVE = "dev"
+#   $env:INTERNAL_API_TOKEN = "dev-only-internal-token-change-me"; .\mvnw.cmd spring-boot:run
 
-# 3. In a second terminal: token, incident, investigation.
+# 2. Token, incident, investigation.
 $token = (Invoke-RestMethod -Method Post http://localhost:8080/api/v1/dev/token -ContentType "application/json" `
   -Body '{"subject":"alice","tenantId":"acme","roles":["RESPONDER"]}').accessToken
 $h = @{ Authorization = "Bearer $token" }
@@ -92,6 +92,50 @@ cd incident-service;      .\mvnw.cmd test                                   # Do
 cd ..\investigation-worker; .\.venv\Scripts\python.exe -m pytest -q          # integration tests start containers
 .\.venv\Scripts\python.exe -m pytest -m eval_smoke -q                        # eval pipeline, FakeLLM, ~20 s
 ```
+
+## Observability
+
+Metrics, traces and alerts run in an optional compose profile, so the default stack stays light.
+
+```powershell
+cd incident-service
+$env:LLM_PROVIDER = "fake"; $env:TRACING_EXPORT_ENABLED = "true"   # send spans to the collector
+docker compose --profile observability up -d --build
+```
+
+| What | URL | Notes |
+|---|---|---|
+| Grafana | http://localhost:3000 | `admin` / `$env:GRAFANA_ADMIN_PASSWORD` (dev-only default in compose.yaml); dashboard "AI Incident Platform" |
+| Prometheus | http://localhost:9090 | targets, PromQL, firing alerts at `/alerts` |
+| Jaeger | http://localhost:16686 | traces of both services |
+| Metrics endpoints | `incident-service:8081/actuator/prometheus`, `investigation-worker:9464/metrics` | inside the Docker network only, never published on the host |
+
+- **One trace per incident, end to end.** The POST's W3C `traceparent` is stored with the outbox row,
+  the relay continues it in the Kafka record headers, and the worker's consume span is its child:
+  HTTP request → outbox publish → `incident-events process` → investigation → graph nodes → `llm.generate`
+  and SQL spans. The Java → worker read API is traced too. Every log line in both services has `traceId=`.
+  Spans carry ids, counts, model, tokens and timings, never prompt, evidence or answer text.
+- **Dashboard** (`observability/grafana/dashboards/`):
+  - API rate, errors and p95 latency by route.
+  - Pipeline: outbox backlog and publishes, Kafka consumer lag, DLQ messages.
+  - Investigations: rate by status, p50/p95 duration, SLO stat, per-node p95.
+  - LLM: p95 latency, tokens/min, cost/hour, errors by kind, repair and insufficient-evidence rates, retrieval.
+- **Alerts** (`observability/prometheus/rules/`):
+
+  | Alert | Fires when |
+  |---|---|
+  | `KafkaConsumerLagGrowing` | Consumer lag has kept growing for 10 minutes |
+  | `DeadLetterMessages` | Any message has been dead-lettered |
+  | `InvestigationFailureRateHigh` | More than 10% of investigations FAILED over 15 minutes |
+  | `InvestigationLatencyP95High` | p95 investigation time is above 60 s for 10 minutes |
+  | `LLMConfigError` | Any LLM authentication or configuration error |
+  | `LLMCostPerHourHigh` | LLM spend in the last hour exceeds `$env:LLM_COST_ALERT_USD_PER_HOUR` (default $1) |
+  | `ScrapeTargetDown` | Prometheus can't scrape a service |
+
+- **SLO:** 95% of investigations finish in under 30 s over 7 days. The SLI comes from the
+  `investigation_duration_seconds` histogram, with recording rules
+  `sli:investigation_latency_under_30s:ratio_rate{5m,1h,7d}`. `InvestigationLatencySLOBreached` fires when
+  the 7-day ratio drops below 0.95.
 
 ## API
 
@@ -115,7 +159,8 @@ worker's logs.
 - **Shared-secret service auth**: one static `X-Internal-Token`; no mTLS or per-service identity yet.
 - **Time-windowed evidence**: logs and metrics are searched around `createdAt`; an incident filed long
   after its symptoms gets only runbooks and past incidents.
-- **Not deployed yet**: no CI/CD, cloud infrastructure or UI (Milestone 3).
+- **Not deployed yet**: CI tests, scans and publishes the images, but there is no cloud environment or UI yet
+  (Milestone 3).
 
 ## Repository layout
 

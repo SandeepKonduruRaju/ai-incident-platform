@@ -3,6 +3,7 @@ package com.sandeep.incidentplatform.service;
 import com.sandeep.incidentplatform.dto.InvestigationResponse;
 import com.sandeep.incidentplatform.investigation.WorkerInvestigation;
 import com.sandeep.incidentplatform.investigation.WorkerInvestigationClient;
+import com.sandeep.incidentplatform.observability.PlatformMetrics;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -19,10 +20,13 @@ public class InvestigationService {
 
     private final IncidentService incidentService;
     private final WorkerInvestigationClient workerClient;
+    private final PlatformMetrics metrics;
 
-    public InvestigationService(IncidentService incidentService, WorkerInvestigationClient workerClient) {
+    public InvestigationService(IncidentService incidentService, WorkerInvestigationClient workerClient,
+                                PlatformMetrics metrics) {
         this.incidentService = incidentService;
         this.workerClient = workerClient;
+        this.metrics = metrics;
     }
 
     /** Empty = no such incident for this tenant (404). Otherwise always an answer, PENDING at the least. */
@@ -34,6 +38,7 @@ public class InvestigationService {
                 .map(investigation -> toResponse(incidentId, investigation))
                 // The incident exists but the worker has not consumed its event yet.
                 .orElseGet(() -> InvestigationResponse.pending(incidentId));
+        metrics.investigationRead(response.status());
         return Optional.of(response);
     }
 

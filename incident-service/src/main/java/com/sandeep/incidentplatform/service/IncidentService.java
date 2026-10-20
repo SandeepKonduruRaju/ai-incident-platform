@@ -12,6 +12,8 @@ import com.sandeep.incidentplatform.event.KafkaTopics;
 import com.sandeep.incidentplatform.model.Incident;
 import com.sandeep.incidentplatform.model.IncidentStatus;
 import com.sandeep.incidentplatform.observability.RequestIdFilter;
+import com.sandeep.incidentplatform.observability.PlatformMetrics;
+import com.sandeep.incidentplatform.observability.TraceContextSupport;
 import com.sandeep.incidentplatform.outbox.OutboxEvent;
 import com.sandeep.incidentplatform.outbox.OutboxEventRepository;
 import com.sandeep.incidentplatform.repository.IncidentRepository;
@@ -34,13 +36,18 @@ public class IncidentService {
 
     private final IncidentRepository incidentRepository;
     private final OutboxEventRepository outboxEventRepository;
+    private final PlatformMetrics metrics;
+    private final TraceContextSupport traceContext;
     private final JsonMapper jsonMapper;
 
     public IncidentService(IncidentRepository incidentRepository,
-            OutboxEventRepository outboxEventRepository, JsonMapper jsonMapper) {
+            OutboxEventRepository outboxEventRepository, JsonMapper jsonMapper,
+            PlatformMetrics metrics, TraceContextSupport traceContext) {
         this.incidentRepository = incidentRepository;
         this.outboxEventRepository = outboxEventRepository;
         this.jsonMapper = jsonMapper;
+        this.metrics = metrics;
+        this.traceContext = traceContext;
     }
 
     // One transaction for both inserts: either the incident AND its event are stored, or neither is.
@@ -71,8 +78,11 @@ public class IncidentService {
                 event.eventType(),
                 KafkaTopics.INCIDENT_EVENTS,
                 jsonMapper.writeValueAsString(event),
-                event.occurredAt()));
+                event.occurredAt(),
+                // Like requestId: captured on the request thread, re-attached by the relay later.
+                traceContext.currentTraceparent()));
 
+        metrics.incidentCreated(saved.severity());
         return saved;
     }
 

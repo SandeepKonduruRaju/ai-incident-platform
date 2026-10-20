@@ -88,6 +88,17 @@ class Settings(BaseSettings):
     # start without it, so the internal endpoint can never be left open by accident.
     internal_api_token: SecretStr | None = None
 
+    # --- Observability (section 3.4) ---
+    # Prometheus /metrics on its own port (not the API port); 0 = off.
+    metrics_port: int = 9464
+    # Traces: spans always exist (trace ids in logs); OTLP export to the collector only when enabled.
+    tracing_export_enabled: bool = False
+    otel_exporter_otlp_endpoint: str = "http://localhost:4318"
+    otel_service_name: str = "investigation-worker"
+    # USD per million tokens for llm_cost_usd_total (claude-haiku-5-5 list prices); the fake provider costs 0.
+    llm_price_input_per_m: float = 0.10
+    llm_price_output_per_m: float = 0.50
+
     log_level: str = "INFO"
 
     @field_validator("anthropic_api_key", "internal_api_token", mode="before")

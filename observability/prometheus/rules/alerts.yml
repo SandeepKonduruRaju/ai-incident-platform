@@ -1,0 +1,58 @@
+# Alerts as code (Prometheus rules). Firing alerts are visible at http://localhost:9090/alerts and on the
+# Grafana dashboard. No Alertmanager in the local stack: in production these would route to on-call.
+groups:
+  - name: investigation-pipeline
+    rules:
+      - alert: KafkaConsumerLagGrowing
+        # Lag above zero AND still rising, for 10 minutes: the worker is not keeping up (or is stuck).
+        expr: sum(kafka_consumer_lag) > 0 and deriv(sum(kafka_consumer_lag)[10m:1m]) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Kafka consumer lag has been growing for 10 minutes ({{ $value | humanize }} msg/s)"
+          description: "The investigation worker is not keeping up with incident-events. Check worker health and LLM latency."
+
+      - alert: DeadLetterMessages
+        # Any message on the DLQ needs a human: it was not (and will not be) investigated automatically.
+        expr: sum by (reason) (increase(dlq_messages_total[15m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $value | printf \"%.0f\" }} message(s) dead-lettered ({{ $labels.reason }}) in the last 15 minutes"
+          description: "Inspect incident-events.DLQ (dlq-error-* headers), fix, then replay."
+
+      - alert: InvestigationFailureRateHigh
+        expr: |
+          sum(rate(investigations_total{status="FAILED"}[15m]))
+            / sum(rate(investigations_total[15m])) > 0.10
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $value | humanizePercentage }} of investigations FAILED over the last 15 minutes (> 10%)"
+          description: "Check llm_errors_total by kind (invalid_output, timeout, server) and worker logs."
+
+      - alert: InvestigationLatencyP95High
+        expr: histogram_quantile(0.95, sum by (le) (rate(investigation_duration_seconds_bucket[10m]))) > 60
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Investigation p95 latency is {{ $value | humanizeDuration }} (> 60s) for 10 minutes"
+
+      - alert: LLMConfigError
+        # 401/403/404 from the LLM API: bad key or model id. Investigations stay PENDING until fixed.
+        expr: sum(increase(llm_errors_total{kind="config"}[10m])) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "LLM authentication/configuration errors: investigations are stuck in PENDING"
+          description: "Fix ANTHROPIC_API_KEY / LLM_MODEL, restart the worker, then python -m app.rerun --status PENDING."
+
+      - alert: ScrapeTargetDown
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Prometheus cannot scrape {{ $labels.job }} ({{ $labels.instance }})"

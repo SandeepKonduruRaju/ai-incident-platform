@@ -1,0 +1,17 @@
+# Build context = incident-service/. Only mvnw, .mvn/, pom.xml and src/ are needed.
+target/
+.env
+.env.*
+.git
+.gitignore
+.gitattributes
+.idea
+.vscode
+*.iml
+*.log
+HELP.md
+compose.yaml
+Dockerfile
+.dockerignore
+# The wrapper downloads its own jar if needed; never ship a local one.
+.mvn/wrapper/maven-wrapper.jar

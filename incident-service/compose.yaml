@@ -89,6 +89,11 @@ services:
       # Shared secret for GET /internal/v1/* (incident-service sends it as X-Internal-Token).
       # DEV-ONLY default; incident-service must use the same value ($env:INTERNAL_API_TOKEN).
       INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-dev-only-internal-token-change-me}
+      # Observability (section 3.4): /metrics on 9464 (inside the network only, scraped by Prometheus);
+      # traces to the collector when TRACING_EXPORT_ENABLED=true (with --profile observability).
+      METRICS_PORT: "9464"
+      TRACING_EXPORT_ENABLED: ${TRACING_EXPORT_ENABLED:-false}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
     ports:
       - "8001:8000"
     healthcheck:
@@ -114,6 +119,104 @@ services:
     command: ["python", "-m", "app.ingest"]
     restart: "no"
 
+  # The Java API, built from ./Dockerfile. "docker compose up -d --build" now starts the whole stack.
+  # To run it with .\mvnw.cmd spring-boot:run instead: "docker compose stop incident-service" first (it
+  # uses port 8080), or publish this container elsewhere with $env:INCIDENT_SERVICE_PORT = "8081".
+  incident-service:
+    build:
+      context: .
+    image: incident-service:local
+    container_name: incident-service
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully   # topics exist before the outbox relay sends
+      investigation-worker:
+        condition: service_healthy
+    environment:
+      # Inside the compose network: service names and the INTERNAL Kafka listener, not localhost.
+      DB_URL: jdbc:postgresql://postgres:5432/incident_platform
+      DB_USERNAME: incident_app
+      DB_PASSWORD: localpass   # local container only (same as POSTGRES_PASSWORD above)
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      INVESTIGATION_WORKER_BASE_URL: http://investigation-worker:8000
+      # DEV-ONLY defaults (local stack only), overridable from the host environment or incident-service/.env.
+      JWT_SECRET: ${JWT_SECRET:-dev-only-jwt-secret-change-me-0123456789abcdef}
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-dev-only-internal-token-change-me}
+      # dev = enables POST /api/v1/dev/token; never set it in a real deployment.
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev}
+      # Observability (section 3.4): actuator (health, prometheus) on 8081, NOT published on the host:
+      # only Prometheus reaches it inside the network. Traces to the collector when TRACING_EXPORT_ENABLED=true.
+      MANAGEMENT_PORT: "8081"
+      TRACING_EXPORT_ENABLED: ${TRACING_EXPORT_ENABLED:-false}
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
+    ports:
+      - "${INCIDENT_SERVICE_PORT:-8080}:8080"
+    # The image's HEALTHCHECK (curl /api/v1/health) is used as is.
+
+  # ---------------------------------------------------------------- observability profile (section 3.4)
+  # Off by default so the normal stack stays light. Start with:
+  #   $env:TRACING_EXPORT_ENABLED = "true"; docker compose --profile observability up -d --build
+  otel-collector:
+    profiles: ["observability"]
+    image: otel/opentelemetry-collector:0.163.1
+    container_name: otel-collector
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ../observability/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    depends_on:
+      - jaeger
+
+  jaeger:
+    profiles: ["observability"]
+    image: jaegertracing/jaeger:2.22.0   # all-in-one: OTLP in, in-memory storage, UI
+    container_name: jaeger
+    ports:
+      - "16686:16686"   # UI
+
+  prometheus:
+    profiles: ["observability"]
+    image: prom/prometheus:v3.15.0
+    container_name: prometheus
+    # Rule files cannot read env vars: fill the cost threshold into the template, then start Prometheus.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        mkdir -p /prometheus/generated &&
+        sed 's/__LLM_COST_ALERT_USD_PER_HOUR__/${LLM_COST_ALERT_USD_PER_HOUR:-1}/g'
+        /etc/prometheus/rules/llm-cost.yml.tpl > /prometheus/generated/llm-cost.yml &&
+        exec /bin/prometheus --config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/prometheus
+        --storage.tsdb.retention.time=7d --web.enable-lifecycle
+    volumes:
+      - ../observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../observability/prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+
+  grafana:
+    profiles: ["observability"]
+    image: grafana/grafana:13.2.4
+    container_name: grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      # DEV-ONLY default; set GRAFANA_ADMIN_PASSWORD in the host environment or incident-service/.env.
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-dev-only-grafana-admin-change-me}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/ai-incident-platform.json
+    volumes:
+      - ../observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+      - jaeger
+    ports:
+      - "3000:3000"
+
 volumes:
   incidents-data:
   kafka-data:
+  prometheus-data:

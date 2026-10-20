@@ -1,5 +1,7 @@
 package com.sandeep.incidentplatform;
 
+import com.sandeep.incidentplatform.observability.PlatformMetrics;
+import com.sandeep.incidentplatform.observability.TraceContextSupport;
 import com.sandeep.incidentplatform.dto.CreateIncidentRequest;
 import com.sandeep.incidentplatform.event.IncidentCreatedEvent;
 import com.sandeep.incidentplatform.event.KafkaTopics;
@@ -43,7 +45,8 @@ class IncidentServiceEventTest {
     void shouldSaveIncidentAndOutboxRowWithTheEvent() {
         // Arrange: save() returns whatever it is given, like a real repository
         when(incidentRepository.save(any(Incident.class))).thenAnswer(call -> call.getArgument(0));
-        IncidentService service = new IncidentService(incidentRepository, outboxEventRepository, jsonMapper);
+        IncidentService service = new IncidentService(incidentRepository, outboxEventRepository, jsonMapper,
+                PlatformMetrics.inMemory(), TraceContextSupport.noop());
         CreateIncidentRequest request = new CreateIncidentRequest(
                 "Payments failing",
                 "Customers cannot complete checkout",

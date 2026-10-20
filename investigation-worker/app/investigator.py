@@ -15,9 +15,13 @@ from app.events import IncidentCreatedPayload
 from app.graph import GraphDeps, Retriever, build_graph, run_investigation
 from app.investigations import InvestigationRef, PostgresInvestigationStore
 from app.llm import LLM
+from app.llm_observed import ObservedLLM
+from app.metrics import RETRIEVAL_DURATION, RETRIEVED_CHUNKS, initialize_series
 from app.processing import Investigate
+from app.prompt import PROMPT_VERSION
 from app.rerank import FastEmbedReranker, Reranker
 from app.retrieval import EvidenceItem, retrieve_evidence
+from app.tracing import tracer
 
 
 async def load_models(settings: Settings) -> tuple[Embedder, Reranker]:
@@ -29,6 +33,13 @@ async def load_models(settings: Settings) -> tuple[Embedder, Reranker]:
 
 def build_retriever(engine: AsyncEngine, embedder: Embedder, reranker: Reranker, settings: Settings) -> Retriever:
     async def retrieve(tenant_id: str, incident: IncidentCreatedPayload) -> list[EvidenceItem]:
+        with tracer.start_as_current_span("retrieval") as span, RETRIEVAL_DURATION.time():
+            evidence = await _retrieve(tenant_id, incident)
+            span.set_attribute("retrieval.chunks", len(evidence))  # counts only, never chunk text
+        RETRIEVED_CHUNKS.observe(len(evidence))
+        return evidence
+
+    async def _retrieve(tenant_id: str, incident: IncidentCreatedPayload) -> list[EvidenceItem]:
         return await retrieve_evidence(
             engine,
             embedder,
@@ -46,10 +57,24 @@ def build_retriever(engine: AsyncEngine, embedder: Embedder, reranker: Reranker,
     return retrieve
 
 
+def observe_llm(llm: LLM, settings: Settings) -> LLM:
+    """Metrics + span around every LLM call. The fake provider is free, so its cost is 0."""
+    fake = settings.llm_provider == "fake"
+    model = getattr(llm, "model", None) or settings.llm_model
+    initialize_series(model, PROMPT_VERSION)
+    return ObservedLLM(
+        inner=llm,
+        model=model,
+        prompt_version=PROMPT_VERSION,
+        price_in_per_m=0.0 if fake else settings.llm_price_input_per_m,
+        price_out_per_m=0.0 if fake else settings.llm_price_output_per_m,
+    )
+
+
 def build_deps(settings: Settings, engine: AsyncEngine, llm: LLM, retriever: Retriever) -> GraphDeps:
     return GraphDeps(
         retrieve=retriever,
-        llm=llm,
+        llm=observe_llm(llm, settings),
         store=PostgresInvestigationStore(engine),
         evidence_max_chars=settings.evidence_max_chars,
         llm_max_retries=settings.llm_max_retries,

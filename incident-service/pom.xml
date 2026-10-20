@@ -28,6 +28,10 @@
 	</scm>
 	<properties>
 		<java.version>17</java.version>
+		<!-- Security patch (section 3.3): Boot 4.1.1 manages Tomcat 11.0.24, which has 3 CRITICAL CVEs
+		     (CVE-2026-65182, CVE-2026-65905, CVE-2026-68525) fixed in 11.0.25. Same 11.0.x line.
+		     Remove this override once a Spring Boot release manages a fixed Tomcat. -->
+		<tomcat.version>11.0.27</tomcat.version>
 	</properties>
 	<dependencies>
 		<dependency>
@@ -60,6 +64,20 @@
 			<artifactId>spring-boot-starter-kafka</artifactId>
 		</dependency>
 
+		<!-- Observability (section 3.4): health + Prometheus endpoints on the management port, and
+		     OpenTelemetry tracing through Micrometer Tracing (OTLP export to the collector). -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-actuator</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>io.micrometer</groupId>
+			<artifactId>micrometer-registry-prometheus</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-opentelemetry</artifactId>
+		</dependency>
 		<dependency>
 			<groupId>org.flywaydb</groupId>
 			<artifactId>flyway-database-postgresql</artifactId>
@@ -80,6 +98,12 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-security-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<!-- @AutoConfigureMetrics / @AutoConfigureTracing: Boot tests switch metrics export and tracing off by default. -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-opentelemetry-test</artifactId>
 			<scope>test</scope>
 		</dependency>
 

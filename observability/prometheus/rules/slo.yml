@@ -1,0 +1,29 @@
+# SLO: 95% of investigations finish in under 30 seconds, measured over 7 days.
+#
+# SLI = good events / all events, where "good" = an investigation that took <= 30 s. It is computed from
+# the investigation_duration_seconds histogram (30 s is one of its bucket boundaries; prometheus_client
+# writes it as le="30.0"). The 5m/1h ratios drive the dashboard; the 7d ratio is the SLO itself.
+# Error budget: 5% of investigations per 7 days may take longer than 30 s.
+groups:
+  - name: slo-investigation-latency
+    interval: 1m
+    rules:
+      - record: sli:investigation_latency_under_30s:ratio_rate5m
+        expr: |
+          sum(rate(investigation_duration_seconds_bucket{le="30.0"}[5m]))
+            / sum(rate(investigation_duration_seconds_count[5m]))
+      - record: sli:investigation_latency_under_30s:ratio_rate1h
+        expr: |
+          sum(rate(investigation_duration_seconds_bucket{le="30.0"}[1h]))
+            / sum(rate(investigation_duration_seconds_count[1h]))
+      - record: sli:investigation_latency_under_30s:ratio_rate7d
+        expr: |
+          sum(rate(investigation_duration_seconds_bucket{le="30.0"}[7d]))
+            / sum(rate(investigation_duration_seconds_count[7d]))
+      - alert: InvestigationLatencySLOBreached
+        expr: sli:investigation_latency_under_30s:ratio_rate7d < 0.95
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Only {{ $value | humanizePercentage }} of investigations finished within 30s over 7 days (SLO 95%)"

@@ -22,18 +22,22 @@ from datetime import UTC, datetime
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer, ConsumerRecord, TopicPartition
 from aiokafka.abc import ConsumerRebalanceListener
 from aiokafka.errors import KafkaError
+from opentelemetry.trace import SpanKind
 
 from app.config import Settings
 from app.errors import ErrorCategory, LLMConfigError, UnsupportedEventError, classify
 from app.events import IncidentCreatedEvent
 from app.logging_context import log_context
+from app.metrics import DLQ_MESSAGES, KAFKA_CONSUMER_LAG
 from app.retry import backoff_delay
+from app.tracing import context_from_headers, tracer
 
 log = logging.getLogger(__name__)
 
 SUPPORTED_EVENT_TYPE = "IncidentCreated"
 SUPPORTED_SCHEMA_VERSIONS = {1}
 MAX_ERROR_MESSAGE_LENGTH = 1000
+LAG_REPORT_INTERVAL_SECONDS = 15.0
 
 Processor = Callable[[IncidentCreatedEvent], Awaitable[object]]
 
@@ -126,10 +130,14 @@ class IncidentEventConsumer:
             consumer, producer = await self._connect()
             self.state = "running"
             log.info("consuming %s as group %s", self._settings.kafka_topic, self._settings.kafka_group_id)
-            while True:
-                record = await consumer.getone()
-                async with self._lock:
-                    await self._handle(consumer, producer, record)
+            lag_task = asyncio.create_task(self._report_lag(consumer), name="kafka-lag")
+            try:
+                while True:
+                    record = await consumer.getone()
+                    async with self._lock:
+                        await self._handle(consumer, producer, record)
+            finally:
+                lag_task.cancel()
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -181,8 +189,42 @@ class IncidentEventConsumer:
 
     # ---------------------------------------------------------------- one message
 
+    async def _report_lag(self, consumer: AIOKafkaConsumer) -> None:
+        """kafka_consumer_lag{partition} = end offset - committed offset, every 15 s. A separate task, so the
+        gauge keeps growing even while the loop is stuck on one slow message."""
+        while True:
+            try:
+                partitions = list(consumer.assignment())
+                ends = await consumer.end_offsets(partitions) if partitions else {}
+                for tp in partitions:
+                    done = await consumer.committed(tp)
+                    position = done if done is not None else await consumer.position(tp)
+                    KAFKA_CONSUMER_LAG.labels(str(tp.partition)).set(max(ends[tp] - position, 0))
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                log.debug("could not compute consumer lag: %r", exc)
+            await asyncio.sleep(LAG_REPORT_INTERVAL_SECONDS)
+
     async def _handle(self, consumer: AIOKafkaConsumer, producer: AIOKafkaProducer, record: ConsumerRecord) -> None:
         headers = decode_headers(record.headers)
+        # The producer's W3C traceparent header: this span joins the trace that started with the HTTP POST.
+        with tracer.start_as_current_span(
+            f"{record.topic} process",
+            context=context_from_headers(headers),
+            kind=SpanKind.CONSUMER,
+            attributes={
+                "messaging.system": "kafka",
+                "messaging.destination.name": record.topic,
+                "messaging.kafka.partition": record.partition,
+                "messaging.kafka.offset": record.offset,
+            },
+        ):
+            await self._handle_in_span(consumer, producer, record, headers)
+
+    async def _handle_in_span(
+        self, consumer: AIOKafkaConsumer, producer: AIOKafkaProducer, record: ConsumerRecord, headers: dict[str, str]
+    ) -> None:
         # Context from the headers first: available even when the body is not valid JSON.
         with log_context(
             request_id=headers.get("requestId"),
@@ -255,6 +297,7 @@ class IncidentEventConsumer:
                 await producer.send_and_wait(
                     self._settings.kafka_dlq_topic, value=record.value, key=record.key, headers=headers
                 )
+                DLQ_MESSAGES.labels(failure.category.value.lower()).inc()
                 log.warning(
                     "sent %s-%d@%d to %s (%s %s)",
                     record.topic, record.partition, record.offset,

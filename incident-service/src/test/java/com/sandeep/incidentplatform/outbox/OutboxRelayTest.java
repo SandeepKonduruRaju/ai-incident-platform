@@ -1,5 +1,7 @@
 package com.sandeep.incidentplatform.outbox;
 
+import com.sandeep.incidentplatform.observability.PlatformMetrics;
+import com.sandeep.incidentplatform.observability.TraceContextSupport;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.header.Header;
 import org.junit.jupiter.api.Test;
@@ -117,7 +119,8 @@ class OutboxRelayTest {
     }
 
     private OutboxRelay relay() {
-        return new OutboxRelay(outboxEventRepository, kafkaTemplate, jsonMapper);
+        return new OutboxRelay(outboxEventRepository, kafkaTemplate, jsonMapper,
+                PlatformMetrics.inMemory(), TraceContextSupport.noop());
     }
 
     private static OutboxEvent row(String requestId) {

@@ -9,6 +9,8 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 
+from app.tracing import current_trace_id
+
 request_id_var: ContextVar[str | None] = ContextVar("request_id", default=None)
 tenant_id_var: ContextVar[str | None] = ContextVar("tenant_id", default=None)
 event_id_var: ContextVar[str | None] = ContextVar("event_id", default=None)
@@ -17,7 +19,8 @@ node_var: ContextVar[str | None] = ContextVar("node", default=None)  # current L
 
 LOG_FORMAT = (
     "%(asctime)s %(levelname)-5s [requestId=%(request_id)s tenantId=%(tenant_id)s "
-    "eventId=%(event_id)s investigationId=%(investigation_id)s node=%(node)s] %(name)s : %(message)s"
+    "eventId=%(event_id)s investigationId=%(investigation_id)s node=%(node)s traceId=%(trace_id)s] "
+    "%(name)s : %(message)s"
 )
 
 _original_factory = logging.getLogRecordFactory()
@@ -31,6 +34,7 @@ def _record_factory(*args, **kwargs) -> logging.LogRecord:
     record.event_id = event_id_var.get() or "-"
     record.investigation_id = investigation_id_var.get() or "-"
     record.node = node_var.get() or "-"
+    record.trace_id = current_trace_id() or "-"  # the same id as in Jaeger/Grafana: logs <-> traces
     return record
 
 
