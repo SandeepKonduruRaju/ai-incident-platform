@@ -78,6 +78,11 @@ class Settings(BaseSettings):
     investigation_time_budget_seconds: float = 120.0
     evidence_max_chars: int = 1500  # per evidence chunk in the prompt
 
+    # --- Evaluation (section 2.8) ---
+    # LLM-as-judge model for python -m app.eval_investigation. Default: the same Haiku as the investigator
+    # (cheap, but same-model judging is biased towards its own answers; the report says so).
+    judge_model: str = "claude-haiku-5-5"
+
     # --- Internal API (section 2.7) ---
     # Shared secret that incident-service sends in X-Internal-Token. No default: the app refuses to
     # start without it, so the internal endpoint can never be left open by accident.

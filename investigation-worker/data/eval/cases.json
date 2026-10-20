@@ -394,7 +394,7 @@
       "scenario": "db_pool_exhausted",
       "incident": {
         "incidentId": "f27c3f92-5460-5377-a41b-0633d8f1399f",
-        "title": "Stock lookups stall, then error out",
+        "title": "Stock checks stall, then error out",
         "description": "Around 01:00 UTC calls to inventory-service began stalling for a long time before returning errors. Load looks ordinary.",
         "severity": "HIGH",
         "status": "OPEN",
