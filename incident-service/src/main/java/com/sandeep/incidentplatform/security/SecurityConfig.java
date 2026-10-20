@@ -1,6 +1,8 @@
 package com.sandeep.incidentplatform.security;
 
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.security.autoconfigure.actuate.web.servlet.EndpointRequest;
+import org.springframework.core.annotation.Order;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -30,7 +32,25 @@ public class SecurityConfig {
 
     public static final String ROLES_CLAIM = "roles";
 
+    /**
+     * Actuator endpoints (only health and prometheus are exposed) live on the separate management port
+     * (management.server.port), which compose publishes only inside the Docker network for Prometheus.
+     * They carry no business data, so they need no JWT; this chain matches ONLY actuator endpoints and
+     * runs first, and the API chain below is unchanged. On the API port /actuator/** does not exist (404).
+     */
     @Bean
+    @Order(1)
+    SecurityFilterChain managementSecurityFilterChain(HttpSecurity http) throws Exception {
+        http
+                .securityMatcher(EndpointRequest.toAnyEndpoint())
+                .csrf(AbstractHttpConfigurer::disable)
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .authorizeHttpRequests(auth -> auth.anyRequest().permitAll());
+        return http.build();
+    }
+
+    @Bean
+    @Order(2)
     SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
                 // Stateless API authenticated by a bearer token, not a cookie, so CSRF does not apply.

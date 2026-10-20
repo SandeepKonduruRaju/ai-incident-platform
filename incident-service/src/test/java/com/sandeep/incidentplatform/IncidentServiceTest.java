@@ -1,5 +1,8 @@
 package com.sandeep.incidentplatform;
 
+import com.sandeep.incidentplatform.observability.PlatformMetrics;
+import com.sandeep.incidentplatform.observability.TraceContextSupport;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.sandeep.incidentplatform.dto.CreateIncidentRequest;
 import com.sandeep.incidentplatform.outbox.OutboxEventRepository;
 import com.sandeep.incidentplatform.model.Incident;
@@ -46,9 +49,13 @@ class IncidentServiceTest {
 
     private IncidentService service;
 
+    private SimpleMeterRegistry metrics;
+
     @BeforeEach
     void setUp() {
-        service = new IncidentService(incidentRepository, outboxEventRepository, JsonMapper.builder().build());
+        metrics = new SimpleMeterRegistry();
+        service = new IncidentService(incidentRepository, outboxEventRepository, JsonMapper.builder().build(),
+                new PlatformMetrics(metrics), TraceContextSupport.noop());
     }
 
     @Test

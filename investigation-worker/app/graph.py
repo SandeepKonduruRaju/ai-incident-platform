@@ -34,10 +34,19 @@ from app.events import IncidentCreatedPayload
 from app.investigations import InvestigationRef, Usage
 from app.llm import LLM, LLMResponse
 from app.logging_context import investigation_id_var, node_var, value_context
+from app.metrics import (
+    GRAPH_NODE_DURATION,
+    INSUFFICIENT_EVIDENCE,
+    INVESTIGATION_DURATION,
+    INVESTIGATIONS,
+    LLM_ERRORS,
+    REPAIR_ATTEMPTS,
+)
 from app.prompt import PROMPT_VERSION, SYSTEM_PROMPT, build_repair_message, build_user_message
 from app.retrieval import EvidenceItem, label_map
 from app.retry import backoff_delay
 from app.schemas import INSUFFICIENT_EVIDENCE_RESULT, InvestigationResult, result_json_schema
+from app.tracing import tracer
 
 log = logging.getLogger(__name__)
 
@@ -156,11 +165,13 @@ def _add_usage(usage: Usage, response: LLMResponse) -> Usage:
 
 
 def _logged(name: str, node: Callable[[InvestigationState], Awaitable[dict[str, Any]]]):
-    """Puts the node name into the logging context (node=... in every log line of that node)."""
+    """Puts the node name into the logging context (node=... in every log line of that node), and gives
+    each node a span (graph.<name>) and a duration (graph_node_duration_seconds{node})."""
 
     @wraps(node)
     async def wrapper(state: InvestigationState) -> dict[str, Any]:
-        with value_context(node_var, name):
+        with value_context(node_var, name), tracer.start_as_current_span(f"graph.{name}"), \
+                GRAPH_NODE_DURATION.labels(name).time():
             log.debug("enter")
             return await node(state)
 
@@ -227,9 +238,11 @@ def build_graph(deps: GraphDeps):
         result, error = validate_output(state.get("raw_output"), state.get("stop_reason"), state["label_map"])
         if error:
             log.warning("invalid LLM output (attempt %d): %s", state.get("attempts", 0), error)
+            LLM_ERRORS.labels(state.get("usage", Usage()).model or "unknown", "invalid_output").inc()
         return {"result": result, "error": error}
 
     async def repair(state: InvestigationState) -> dict[str, Any]:
+        REPAIR_ATTEMPTS.inc()
         user = state["user_message"] + build_repair_message(state.get("raw_output") or "", state.get("error") or "")
         return await call_llm(state, user)
 
@@ -254,6 +267,7 @@ def build_graph(deps: GraphDeps):
             prompt_version=PROMPT_VERSION, **common(state),
         )
         _log_saved(saved, "COMPLETED (insufficient evidence)")
+        INSUFFICIENT_EVIDENCE.inc()
         return {"outcome": "COMPLETED", "result": INSUFFICIENT_EVIDENCE_RESULT.model_dump(mode="json")}
 
     async def save_failed(state: InvestigationState) -> dict[str, Any]:
@@ -308,5 +322,19 @@ async def run_investigation(
         "usage": Usage(),
         "deadline": deps.clock() + time_budget_seconds,
     }
-    with value_context(investigation_id_var, str(ref.id)):
-        return await graph.ainvoke(initial, config={"recursion_limit": RECURSION_LIMIT})
+    started = time.perf_counter()
+    with value_context(investigation_id_var, str(ref.id)), tracer.start_as_current_span("investigation") as span:
+        span.set_attribute("investigation.id", str(ref.id))
+        span.set_attribute("tenant.id", ref.tenant_id)
+        span.set_attribute("prompt_version", PROMPT_VERSION)
+        state = await graph.ainvoke(initial, config={"recursion_limit": RECURSION_LIMIT})
+        span.set_attribute("investigation.outcome", state["outcome"])
+    _record_outcome(state, time.perf_counter() - started)
+    return state
+
+
+def _record_outcome(state: InvestigationState, seconds: float) -> None:
+    """investigations_total + investigation_duration_seconds. model "none": finished without an LLM call."""
+    outcome = state["outcome"]
+    INVESTIGATIONS.labels(outcome, state["usage"].model or "none", PROMPT_VERSION).inc()
+    INVESTIGATION_DURATION.labels(outcome).observe(seconds)

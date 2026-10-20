@@ -1,5 +1,9 @@
 package com.sandeep.incidentplatform.outbox;
 
+import com.sandeep.incidentplatform.observability.PlatformMetrics;
+import com.sandeep.incidentplatform.observability.TraceContextSupport;
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.Tracer;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.header.Headers;
 import org.slf4j.Logger;
@@ -34,12 +38,16 @@ public class OutboxRelay {
     private final OutboxEventRepository outboxEventRepository;
     private final KafkaTemplate<String, String> kafkaTemplate;
     private final JsonMapper jsonMapper;
+    private final PlatformMetrics metrics;
+    private final TraceContextSupport traceContext;
 
     public OutboxRelay(OutboxEventRepository outboxEventRepository, KafkaTemplate<String, String> kafkaTemplate,
-                       JsonMapper jsonMapper) {
+                       JsonMapper jsonMapper, PlatformMetrics metrics, TraceContextSupport traceContext) {
         this.outboxEventRepository = outboxEventRepository;
         this.kafkaTemplate = kafkaTemplate;
         this.jsonMapper = jsonMapper;
+        this.metrics = metrics;
+        this.traceContext = traceContext;
     }
 
     // One transaction per batch: rows stay locked while we send, and the changes below
@@ -49,21 +57,43 @@ public class OutboxRelay {
     public void relayBatch() {
         List<OutboxEvent> batch = outboxEventRepository.lockUnpublishedBatch(BATCH_SIZE);
         for (OutboxEvent event : batch) {
-            try {
-                // Blocking on purpose: we must know the send succeeded before marking the row published.
-                kafkaTemplate.send(toRecord(event)).get(SEND_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-                event.markPublished(Instant.now());
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                event.recordFailedAttempt();
-                return;
-            } catch (Exception e) {
-                event.recordFailedAttempt();
-                log.warn("Outbox send failed eventId={} attempts={}; stopping batch to keep order",
-                        event.id(), event.attempts(), e);
+            if (!send(event)) {
                 // Stop here: sending later rows now would put them on Kafka before this one.
                 return;
             }
+        }
+    }
+
+    // The span continues the trace of the request that created the event (stored in the row), and its
+    // traceparent goes into the record headers, so the worker's spans join the same trace.
+    private boolean send(OutboxEvent event) {
+        Span span = traceContext.startContinuing(event.traceParent(), "outbox publish")
+                .tag("messaging.system", "kafka")
+                .tag("messaging.destination.name", event.topic())
+                .tag("event.type", event.eventType());
+        try (Tracer.SpanInScope ignored = traceContext.inScope(span)) {
+            ProducerRecord<String, String> record = toRecord(event);
+            traceContext.injectInto(span, record.headers());
+            // Blocking on purpose: we must know the send succeeded before marking the row published.
+            kafkaTemplate.send(record).get(SEND_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            event.markPublished(Instant.now());
+            metrics.outboxPublished(true);
+            return true;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            event.recordFailedAttempt();
+            metrics.outboxPublished(false);
+            span.error(e);
+            return false;
+        } catch (Exception e) {
+            event.recordFailedAttempt();
+            metrics.outboxPublished(false);
+            span.error(e);
+            log.warn("Outbox send failed eventId={} attempts={}; stopping batch to keep order",
+                    event.id(), event.attempts(), e);
+            return false;
+        } finally {
+            span.end();
         }
     }
 

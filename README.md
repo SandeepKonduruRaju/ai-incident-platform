@@ -93,6 +93,50 @@ cd ..\investigation-worker; .\.venv\Scripts\python.exe -m pytest -q          # i
 .\.venv\Scripts\python.exe -m pytest -m eval_smoke -q                        # eval pipeline, FakeLLM, ~20 s
 ```
 
+## Observability
+
+Metrics, traces and alerts run in an optional compose profile, so the default stack stays light.
+
+```powershell
+cd incident-service
+$env:LLM_PROVIDER = "fake"; $env:TRACING_EXPORT_ENABLED = "true"   # send spans to the collector
+docker compose --profile observability up -d --build
+```
+
+| What | URL | Notes |
+|---|---|---|
+| Grafana | http://localhost:3000 | `admin` / `$env:GRAFANA_ADMIN_PASSWORD` (dev-only default in compose.yaml); dashboard "AI Incident Platform" |
+| Prometheus | http://localhost:9090 | targets, PromQL, firing alerts at `/alerts` |
+| Jaeger | http://localhost:16686 | traces of both services |
+| Metrics endpoints | `incident-service:8081/actuator/prometheus`, `investigation-worker:9464/metrics` | inside the Docker network only, never published on the host |
+
+- **One trace per incident, end to end.** The POST's W3C `traceparent` is stored with the outbox row,
+  the relay continues it in the Kafka record headers, and the worker's consume span is its child:
+  HTTP request → outbox publish → `incident-events process` → investigation → graph nodes → `llm.generate`
+  and SQL spans. The Java → worker read API is traced too. Every log line in both services has `traceId=`.
+  Spans carry ids, counts, model, tokens and timings, never prompt, evidence or answer text.
+- **Dashboard** (`observability/grafana/dashboards/`):
+  - API rate, errors and p95 latency by route.
+  - Pipeline: outbox backlog and publishes, Kafka consumer lag, DLQ messages.
+  - Investigations: rate by status, p50/p95 duration, SLO stat, per-node p95.
+  - LLM: p95 latency, tokens/min, cost/hour, errors by kind, repair and insufficient-evidence rates, retrieval.
+- **Alerts** (`observability/prometheus/rules/`):
+
+  | Alert | Fires when |
+  |---|---|
+  | `KafkaConsumerLagGrowing` | Consumer lag has kept growing for 10 minutes |
+  | `DeadLetterMessages` | Any message has been dead-lettered |
+  | `InvestigationFailureRateHigh` | More than 10% of investigations FAILED over 15 minutes |
+  | `InvestigationLatencyP95High` | p95 investigation time is above 60 s for 10 minutes |
+  | `LLMConfigError` | Any LLM authentication or configuration error |
+  | `LLMCostPerHourHigh` | LLM spend in the last hour exceeds `$env:LLM_COST_ALERT_USD_PER_HOUR` (default $1) |
+  | `ScrapeTargetDown` | Prometheus can't scrape a service |
+
+- **SLO:** 95% of investigations finish in under 30 s over 7 days. The SLI comes from the
+  `investigation_duration_seconds` histogram, with recording rules
+  `sli:investigation_latency_under_30s:ratio_rate{5m,1h,7d}`. `InvestigationLatencySLOBreached` fires when
+  the 7-day ratio drops below 0.95.
+
 ## API
 
 | Method | Path | Roles |

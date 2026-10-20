@@ -54,9 +54,9 @@ def map_api_error(exc: anthropic.AnthropicError) -> Exception:
     if isinstance(exc, anthropic.NotFoundError):  # unknown model id, or a model this key cannot use
         return LLMConfigError(f"LLM model not found ({type(exc).__name__}) — check LLM_MODEL")
     if isinstance(exc, anthropic.RateLimitError):
-        return TransientLLMError("rate limited (429)", retry_after=_retry_after_seconds(exc))
+        return TransientLLMError("rate limited (429)", retry_after=_retry_after_seconds(exc), kind="rate_limit")
     if isinstance(exc, anthropic.APIConnectionError):  # includes APITimeoutError
-        return TransientLLMError(f"{type(exc).__name__}: no response from the API")
+        return TransientLLMError(f"{type(exc).__name__}: no response from the API", kind="timeout")
     if isinstance(exc, anthropic.APIStatusError):
         if exc.status_code >= 500 or exc.status_code in (408, 409):  # 500, 503, 529 overloaded, ...
             return TransientLLMError(f"API error {exc.status_code} ({exc.type})")

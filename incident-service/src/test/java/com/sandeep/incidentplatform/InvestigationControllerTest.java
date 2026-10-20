@@ -1,5 +1,7 @@
 package com.sandeep.incidentplatform;
 
+import com.sandeep.incidentplatform.observability.PlatformMetrics;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.sandeep.incidentplatform.controller.InvestigationController;
 import com.sandeep.incidentplatform.investigation.WorkerInvestigationClient;
 import com.sandeep.incidentplatform.investigation.WorkerProperties;
@@ -33,6 +35,7 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static com.sandeep.incidentplatform.TestJwt.TENANT;
 import static com.sandeep.incidentplatform.TestJwt.as;
 import static com.sandeep.incidentplatform.TestJwt.asUser;
@@ -71,10 +74,20 @@ class InvestigationControllerTest {
         }
 
         @Bean
-        WorkerInvestigationClient workerInvestigationClient() {
+        SimpleMeterRegistry meterRegistry() {
+            return new SimpleMeterRegistry();
+        }
+
+        @Bean
+        PlatformMetrics platformMetrics(SimpleMeterRegistry registry) {
+            return new PlatformMetrics(registry);
+        }
+
+        @Bean
+        WorkerInvestigationClient workerInvestigationClient(PlatformMetrics metrics) {
             WorkerProperties properties = new WorkerProperties(
                     URI.create("http://investigation-worker.test"), WORKER_TOKEN, null, null);
-            return new WorkerInvestigationClient(builder, properties);
+            return new WorkerInvestigationClient(builder, properties, metrics);
         }
     }
 
@@ -83,6 +96,9 @@ class InvestigationControllerTest {
 
     @Autowired
     private MockRestServiceServer worker;
+
+    @Autowired
+    private SimpleMeterRegistry meters;
 
     @MockitoBean
     private IncidentService incidentService;
@@ -95,6 +111,7 @@ class InvestigationControllerTest {
 
     @Test
     void completedInvestigationIsMappedWithCitations() throws Exception {
+        double readsBefore = count("investigation.reads", "status", "COMPLETED");
         UUID id = existingIncident();
         worker.expect(requestTo(workerUrl(id)))
                 .andExpect(method(org.springframework.http.HttpMethod.GET))
@@ -122,6 +139,12 @@ class InvestigationControllerTest {
                 .andExpect(jsonPath("$.promptVersion").value("v1"))
                 .andExpect(jsonPath("$.completedAt").value("2026-10-19T15:49:46.428Z"))
                 .andExpect(jsonPath("$.failureReason").doesNotExist()); // null fields are omitted
+        assertEquals(readsBefore + 1, count("investigation.reads", "status", "COMPLETED"));
+    }
+
+    private double count(String name, String tag, String value) {
+        var counter = meters.find(name).tag(tag, value).counter();
+        return counter == null ? 0 : counter.count();
     }
 
     @Test
@@ -174,6 +197,7 @@ class InvestigationControllerTest {
 
     @Test
     void workerTimeoutIs503WithRetryAfterAndNoStackTrace() throws Exception {
+        double timeoutsBefore = count("worker.client.errors", "kind", "timeout");
         UUID id = existingIncident();
         worker.expect(requestTo(workerUrl(id))).andRespond(withException(new SocketTimeoutException("Read timed out")));
 
@@ -185,6 +209,7 @@ class InvestigationControllerTest {
                 .andExpect(jsonPath("$.requestId").exists())
                 .andExpect(jsonPath("$.trace").doesNotExist())
                 .andExpect(jsonPath("$.detail").value("The investigation service is temporarily unavailable. Try again shortly."));
+        assertEquals(timeoutsBefore + 1, count("worker.client.errors", "kind", "timeout"));
     }
 
     @Test

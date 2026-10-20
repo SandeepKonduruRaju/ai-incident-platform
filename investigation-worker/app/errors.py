@@ -29,9 +29,10 @@ class PermanentError(Exception):
 class TransientLLMError(TransientError):
     """LLM call failed in a way that may succeed later: timeout, 429, 5xx, overloaded, connection lost."""
 
-    def __init__(self, message: str, retry_after: float | None = None):
+    def __init__(self, message: str, retry_after: float | None = None, kind: str = "server"):
         super().__init__(message)
         self.retry_after = retry_after  # seconds, from the retry-after header when the API sent one
+        self.kind = kind  # rate_limit | timeout | server: the llm_errors_total label (metrics only)
 
 
 class PermanentLLMError(PermanentError):

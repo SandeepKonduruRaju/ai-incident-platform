@@ -3,6 +3,8 @@ from contextlib import asynccontextmanager
 from functools import partial
 
 from fastapi import FastAPI, Request, Response
+from opentelemetry.instrumentation.asyncpg import AsyncPGInstrumentor
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
 from app.config import get_settings
 from app.consumer import IncidentEventConsumer
@@ -12,7 +14,9 @@ from app.internal_api import router as internal_router
 from app.investigator import build_deps, build_retriever, load_models, make_investigate
 from app.llm import build_llm
 from app.logging_context import configure_logging
+from app.metrics import start_metrics_server, stop_metrics_server
 from app.processing import process_event
+from app.tracing import configure_tracing, shutdown_tracing
 
 
 @asynccontextmanager
@@ -20,15 +24,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Startup before `yield`, shutdown after it (like @PostConstruct / @PreDestroy for the whole app)."""
     settings = get_settings()
     configure_logging(settings.log_level)
+    configure_tracing(
+        service_name=settings.otel_service_name,
+        export_enabled=settings.tracing_export_enabled,
+        otlp_endpoint=settings.otel_exporter_otlp_endpoint,
+    )
     require_internal_token_configured(settings)  # fails fast: never serve /internal/* unprotected
     llm = build_llm(settings)  # fails fast: LLM_PROVIDER=anthropic without ANTHROPIC_API_KEY stops startup here
     engine = create_engine(settings.database_url)
+    # A span per SQL statement at the driver level: statement text with $1 placeholders, never bound values.
+    AsyncPGInstrumentor().instrument()
     app.state.engine = engine  # used by the internal read API
     embedder, reranker = await load_models(settings)
     deps = build_deps(settings, engine, llm, build_retriever(engine, embedder, reranker, settings))
     consumer = IncidentEventConsumer(settings, processor=partial(process_event, engine, make_investigate(deps, settings)))
     app.state.consumer = consumer
     app.state.consumer_enabled = settings.consumer_enabled
+    start_metrics_server(settings.metrics_port)  # /metrics on its own port, not the API port
     if settings.consumer_enabled:
         await consumer.start()  # returns immediately; the loop runs as a background task
     try:
@@ -36,10 +48,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     finally:
         await consumer.stop()  # graceful: cancel the task and wait for it to close the Kafka clients
         await engine.dispose()
+        stop_metrics_server()
+        shutdown_tracing()
 
 
 app = FastAPI(title="investigation-worker", lifespan=lifespan)
 app.include_router(internal_router)  # /internal/v1/*, every route requires X-Internal-Token; /health stays public
+# Server spans for the internal API, continuing the caller's trace (traceparent from incident-service).
+FastAPIInstrumentor.instrument_app(app, excluded_urls="health")
 
 
 @app.get("/health")

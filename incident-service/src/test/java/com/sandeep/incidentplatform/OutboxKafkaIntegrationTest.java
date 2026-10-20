@@ -18,6 +18,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.micrometer.tracing.test.autoconfigure.AutoConfigureTracing;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -43,6 +44,8 @@ import static com.sandeep.incidentplatform.TestJwt.asUser;
 import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -56,6 +59,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "outbox.relay.delay-ms=200"
 })
 @AutoConfigureMockMvc
+@AutoConfigureTracing // real (non-export) tracer, so the trace context is captured and propagated
 @Testcontainers(disabledWithoutDocker = true)
 // Close this context after the class: otherwise Spring caches it and the scheduled relay keeps
 // polling PostgreSQL after the containers have stopped, logging errors during later test classes.
@@ -111,6 +115,7 @@ class OutboxKafkaIntegrationTest {
                 .andExpect(status().isCreated())
                 .andReturn();
         String incidentId = JsonPath.read(created.getResponse().getContentAsString(), "$.id");
+        String traceparent;
 
         // A plain consumer in its own group, reading the topic from the start
         try (KafkaConsumer<String, String> consumer = newConsumer()) {
@@ -138,7 +143,17 @@ class OutboxKafkaIntegrationTest {
             assertEquals(IncidentCreatedEvent.TYPE, header(record, "eventType"));
             assertEquals(TestJwt.TENANT, header(record, "tenantId"));
             assertEquals("it-req-1", header(record, "requestId"));
+            traceparent = header(record, "traceparent");
         }
+
+        // W3C trace context on the record: the same trace as the POST request (stored in the outbox row
+        // on the request thread), continued by the relay's own "outbox publish" span.
+        assertNotNull(traceparent, "traceparent header");
+        assertTrue(TRACEPARENT.matcher(traceparent).matches(), traceparent);
+        String stored = outboxEventRepository.findAll().get(0).traceParent();
+        assertNotNull(stored, "trace_parent stored with the outbox row");
+        assertEquals(traceId(stored), traceId(traceparent), "same trace as the HTTP request");
+        assertNotEquals(spanId(stored), spanId(traceparent), "a new (relay) span, child of the request");
 
         // The relay commits after the send, so the row may still be unpublished for a moment
         await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> {
@@ -147,6 +162,17 @@ class OutboxKafkaIntegrationTest {
             assertEquals(UUID.fromString(incidentId), rows.get(0).aggregateId());
             assertEquals(0, outboxEventRepository.countByPublishedAtIsNull(), "published_at is set");
         });
+    }
+
+    private static final java.util.regex.Pattern TRACEPARENT =
+            java.util.regex.Pattern.compile("00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}"); // version-traceid-spanid-flags
+
+    private static String traceId(String traceparent) {
+        return traceparent.split("-")[1];
+    }
+
+    private static String spanId(String traceparent) {
+        return traceparent.split("-")[2];
     }
 
     private static String header(ConsumerRecord<String, String> record, String key) {

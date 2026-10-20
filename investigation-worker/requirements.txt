@@ -14,3 +14,12 @@ fastembed==0.9.0
 # LLM investigation (section 2.6): official Claude SDK + LangGraph state machine
 anthropic==1.15.0
 langgraph==1.2.16
+# Observability (section 3.4): Prometheus metrics (pull, prometheus_client) and OpenTelemetry traces
+# (OTLP/HTTP to the collector). Instrumentation packages are pre-release versions paired with the SDK.
+prometheus-client==0.26.0
+opentelemetry-api==1.45.1
+opentelemetry-sdk==1.45.1
+opentelemetry-exporter-otlp-proto-http==1.45.1
+opentelemetry-instrumentation-fastapi==0.66b1
+# asyncpg, not sqlalchemy: the SQLAlchemy instrumentation only supports SQLAlchemy < 2.1 (we use 2.1).
+opentelemetry-instrumentation-asyncpg==0.66b1

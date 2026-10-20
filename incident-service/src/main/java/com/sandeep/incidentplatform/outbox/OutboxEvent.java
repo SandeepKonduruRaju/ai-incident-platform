@@ -40,11 +40,21 @@ public class OutboxEvent {
     @Column(nullable = false)
     private int attempts;
 
+    // W3C traceparent of the request that created the event (V4); the relay continues this trace.
+    @Column(updatable = false, length = 55)
+    private String traceParent;
+
     protected OutboxEvent() {
         // Required by JPA.
     }
 
     public OutboxEvent(UUID id, UUID aggregateId, String eventType, String topic, String payload, Instant createdAt) {
+        this(id, aggregateId, eventType, topic, payload, createdAt, null);
+    }
+
+    public OutboxEvent(UUID id, UUID aggregateId, String eventType, String topic, String payload, Instant createdAt,
+                       String traceParent) {
+        this.traceParent = traceParent;
         this.id = id;
         this.aggregateId = aggregateId;
         this.eventType = eventType;
@@ -83,6 +93,10 @@ public class OutboxEvent {
 
     public int attempts() {
         return attempts;
+    }
+
+    public String traceParent() {
+        return traceParent;
     }
 
     public void markPublished(Instant when) {

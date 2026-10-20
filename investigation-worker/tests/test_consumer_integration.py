@@ -291,6 +291,7 @@ async def test_lifespan_starts_and_stops_the_consumer(kafka_bootstrap, topics, d
     monkeypatch.setenv("KAFKA_GROUP_ID", f"lifespan-{uuid.uuid4().hex[:8]}")
     monkeypatch.setenv("DATABASE_URL", database_url)
     monkeypatch.setenv("INTERNAL_API_TOKEN", "test-only-internal-token")  # required since 2.7
+    monkeypatch.setenv("METRICS_PORT", "0")  # no fixed port in tests (section 3.4)
     get_settings.cache_clear()
     from app.main import app
 
