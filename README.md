@@ -137,6 +137,58 @@ docker compose --profile observability up -d --build
   `sli:investigation_latency_under_30s:ratio_rate{5m,1h,7d}`. `InvestigationLatencySLOBreached` fires when
   the 7-day ratio drops below 0.95.
 
+## Kubernetes (local, kind)
+
+The same stack on a 3-node [kind](https://kind.sigs.k8s.io/) cluster (1 control plane + 2 workers), with Kustomize
+manifests in `k8s/` (`base` + `overlays/local`).
+
+**Prerequisites:** Docker Desktop (about 10 GB of memory), `kind` (`winget install --id Kubernetes.kind -e`) and
+`kubectl` (bundled with Docker Desktop; `kubectl -k` provides Kustomize). Stop the compose stack first.
+
+```powershell
+.\scripts\k8s-up.ps1     # cluster + ingress-nginx + metrics-server, build/load images (:<git sha>), secrets, apply, wait
+.\scripts\k8s-down.ps1   # deletes the kind cluster (and everything in it)
+```
+
+Then use the API through the ingress at http://localhost/api/... (same calls as the quickstart above, on port 80).
+
+| Manifest | What it runs |
+|---|---|
+| `postgres.yaml` | PostgreSQL 18 + pgvector StatefulSet (2 Gi PVC), `pg_isready` probes |
+| `kafka.yaml` | Kafka 4.1 KRaft single broker StatefulSet (2 Gi PVC), advertised as `kafka:9092` |
+| `kafka-topics-job.yaml` | Job: creates `incident-events` and its DLQ (3 partitions), idempotent |
+| `investigation-worker.yaml` | 3 replicas (one per partition), migrations in an initContainer, `/livez` liveness, `/health` readiness |
+| `worker-ingest-job.yaml` | Job: loads the synthetic evidence (idempotent upserts) |
+| `incident-service.yaml` | 2 replicas, rolling update with `maxUnavailable: 0`, actuator probes, PodDisruptionBudget, HPA (CPU 70%, 2–5) |
+| `ingress.yaml` | `/api` → incident-service only (the worker API, actuator, Postgres and Kafka stay internal) |
+| `network-policies.yaml` | Worker API only from incident-service; Postgres/Kafka only from labelled clients; API only from ingress-nginx |
+
+- **Security:**
+  - Every pod runs as non-root with no privilege escalation, all capabilities dropped and a seccomp profile. The
+    namespace enforces the Pod Security "restricted" standard.
+  - All root filesystems are read-only; `/tmp` and the Kafka config directory are emptyDir volumes.
+  - Secrets come from `scripts/k8s-secrets.ps1` (built from the `.env` files) and are never committed.
+    `k8s/secrets.example.yaml` shows the key names.
+- **Local-only caveats:**
+  - Postgres and Kafka run as single replicas without backups, TLS or authentication.
+  - ingress-nginx (now retired upstream) is used for local routing only.
+  - metrics-server skips kubelet certificate checks (kind's kubelet certificates are self-signed).
+  - Images are loaded into kind directly, without a registry.
+- **On AWS this maps to:**
+
+  | Local (kind) | AWS |
+  |---|---|
+  | kind cluster | EKS |
+  | Postgres StatefulSet | RDS / Aurora PostgreSQL with pgvector |
+  | Kafka StatefulSet | Amazon MSK |
+  | ingress-nginx | AWS Load Balancer Controller (ALB) or Gateway API |
+  | Script-made Secrets | AWS Secrets Manager via External Secrets |
+  | `kind load` images | ECR images pushed by CI (`ghcr.io` today) |
+
+  The app Deployments, probes, PDB, HPA and NetworkPolicies carry over unchanged in a new overlay.
+- **CI:** the "Kubernetes manifests" job renders the overlay and validates it with kubeconform (strict, Kubernetes 1.37
+  schemas), with no cluster and no secrets.
+
 ## API
 
 | Method | Path | Roles |

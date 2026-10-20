@@ -30,6 +30,7 @@ jobs:
     outputs:
       java: ${{ steps.filter.outputs.java }}
       python: ${{ steps.filter.outputs.python }}
+      k8s: ${{ steps.filter.outputs.k8s }}
     steps:
       - uses: actions/checkout@v7
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
@@ -44,6 +45,41 @@ jobs:
               - 'investigation-worker/**'
               - '.github/workflows/ci.yml'
               - '.github/scripts/**'
+            k8s:
+              - 'k8s/**'
+              - '.github/workflows/ci.yml'
+
+  k8s:
+    name: Kubernetes manifests
+    needs: changes
+    if: github.event_name == 'pull_request' || needs.changes.outputs.k8s == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      KUBECONFORM_VERSION: v0.8.0
+      # sha256 of kubeconform-linux-amd64.tar.gz from the release's CHECKSUMS file
+      KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
+      KUBERNETES_VERSION: 1.37.0   # the kind node image in k8s/kind-config.yaml
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install kubeconform (checksum verified)
+        run: |
+          curl -fsSL -o /tmp/kubeconform.tar.gz             "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          echo "${KUBECONFORM_SHA256}  /tmp/kubeconform.tar.gz" | sha256sum --check
+          tar -xzf /tmp/kubeconform.tar.gz -C /tmp kubeconform
+
+      # Renders the overlay without a cluster (kubectl's built-in kustomize) and validates every resource
+      # against the Kubernetes JSON schemas: unknown fields, wrong types and missing required fields fail.
+      - name: Render and validate k8s/overlays/local
+        run: |
+          kubectl kustomize k8s/overlays/local > /tmp/rendered.yaml
+          /tmp/kubeconform -strict -summary -kubernetes-version "${KUBERNETES_VERSION}" /tmp/rendered.yaml
+          {
+            echo "### Kubernetes manifests (k8s/overlays/local)"
+            echo
+            grep '^kind:' /tmp/rendered.yaml | sort | uniq -c | awk '{print "- " $2 ": " $1}'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   java:
     name: incident-service (Java)

@@ -4,3 +4,6 @@
 CLAUDE.md
 .claude/
 *.bak
+# Kubernetes secrets are created by scripts/k8s-secrets.ps1 from the .env files; never commit them.
+k8s/**/*.secret.yaml
+k8s/.secrets/

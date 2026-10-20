@@ -1,0 +1,27 @@
+# Local kind cluster (section 3.5): kubectl apply -k k8s/overlays/local (scripts/k8s-up.ps1 does it).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+# Images are built locally and loaded into kind (`kind load docker-image`); nothing is pulled from a registry.
+# The tag is the git short SHA of the build ("-dirty" when built from uncommitted changes). scripts/k8s-up.ps1
+# rewrites the two newTag lines below on every run; never "latest".
+images:
+  - name: incident-service
+    newTag: 6b5470c-dirty-10201705
+  - name: investigation-worker
+    newTag: 6b5470c-dirty-10201705
+
+# Local-only settings: the dev profile enables POST /api/v1/dev/token (no identity provider here), and the
+# fake LLM needs no API key and costs nothing.
+configMapGenerator:
+  - name: incident-service-config
+    behavior: merge
+    literals:
+      - SPRING_PROFILES_ACTIVE=dev
+  - name: worker-config
+    behavior: merge
+    literals:
+      - LLM_PROVIDER=fake

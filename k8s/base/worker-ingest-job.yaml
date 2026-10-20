@@ -1,0 +1,80 @@
+# Loads the synthetic evidence into worker.chunks (chunk, embed, upsert). Idempotent: deterministic chunk ids
+# + upsert, so rerunning it changes nothing. Migrates first (same advisory lock as the worker pods), so it
+# does not depend on the Deployment having started.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: worker-ingest
+  labels:
+    app.kubernetes.io/name: worker-ingest
+spec:
+  backoffLimit: 4
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: worker-ingest
+        access.incident-platform/postgres: "true"
+    spec:
+      restartPolicy: OnFailure
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: migrate
+          image: investigation-worker
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c", "until alembic upgrade head; do echo 'waiting for postgres'; sleep 3; done"]
+          envFrom:
+            - configMapRef:
+                name: worker-config
+            - secretRef:
+                name: worker-secrets
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      containers:
+        - name: ingest
+          image: investigation-worker
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-m", "app.ingest"]
+          envFrom:
+            - configMapRef:
+                name: worker-config
+            - secretRef:
+                name: worker-secrets
+          # Embedding the whole dataset in batches peaks above 1 Gi (it was OOMKilled at 1 Gi on the first run).
+          resources:
+            requests:
+              cpu: 250m
+              memory: 768Mi
+            limits:
+              cpu: "1"
+              memory: 2Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
