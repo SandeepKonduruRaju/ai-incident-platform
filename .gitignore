@@ -7,3 +7,11 @@ CLAUDE.md
 # Kubernetes secrets are created by scripts/k8s-secrets.ps1 from the .env files; never commit them.
 k8s/**/*.secret.yaml
 k8s/.secrets/
+# Terraform (section 3.6): local state, plugins and variable files never go into git.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+infra/**/backend.hcl
+crash.log

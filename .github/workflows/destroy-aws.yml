@@ -1,0 +1,62 @@
+# Destroys the demo stack (infra/envs/demo). MANUAL ONLY, DISABLED unless AWS_DEPLOY_ENABLED is "true", and
+# only when the confirmation input is typed exactly. The bootstrap (state bucket, budget, OIDC roles) is NOT
+# destroyed here; see infra/README.md for removing it by hand.
+name: Destroy AWS demo (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "destroy-demo" to delete every resource of the demo stack'
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aws-demo
+  cancel-in-progress: false
+
+jobs:
+  destroy:
+    name: Destroy demo
+    if: vars.AWS_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/main' && inputs.confirm == 'destroy-demo'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TF_DIR: infra/envs/demo
+      TF_IN_AUTOMATION: "true"
+      TF_VAR_region: ${{ vars.AWS_REGION }}
+      # Any valid SHA: destroy does not deploy images, but the variable is required.
+      TF_VAR_image_tag: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.16.6
+          terraform_wrapper: false
+
+      - name: Assume the terraform role
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_TERRAFORM_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: gha-destroy-${{ github.run_id }}
+
+      - name: terraform init (remote state)
+        run: terraform -chdir="$TF_DIR" init -input=false -lockfile=readonly -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" -backend-config="region=${{ vars.AWS_REGION }}"
+
+      - name: terraform destroy
+        run: terraform -chdir="$TF_DIR" destroy -input=false -auto-approve
+
+      - name: Confirm nothing is left in the state
+        run: |
+          remaining=$(terraform -chdir="$TF_DIR" state list | wc -l)
+          echo "resources left in state: $remaining"
+          echo "### Demo destroyed ($remaining resources left in state)" >> "$GITHUB_STEP_SUMMARY"
+          [ "$remaining" -eq 0 ]

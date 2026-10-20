@@ -189,6 +189,17 @@ Then use the API through the ingress at http://localhost/api/... (same calls as 
 - **CI:** the "Kubernetes manifests" job renders the overlay and validates it with kubeconform (strict, Kubernetes 1.37
   schemas), with no cluster and no secrets.
 
+## AWS (Terraform)
+
+`infra/` describes an AWS deployment as code:
+- **Compute and data:** ECS Fargate, RDS PostgreSQL + pgvector, a single-broker Kafka task, a public ALB → API only.
+- **Secrets and access:** Secrets Manager, and GitHub OIDC roles trusted only for `main`.
+- **Cost guard:** a $5 budget.
+
+CI checks it without AWS credentials (fmt, validate, tflint, trivy). Deploy and destroy are manual, disabled-by-default
+workflows. See [infra/README.md](infra/README.md) for the architecture, estimated costs (≈ $4/day while running) and
+the bootstrap → deploy → destroy-the-same-day steps.
+
 ## API
 
 | Method | Path | Roles |

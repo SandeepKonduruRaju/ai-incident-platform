@@ -1,0 +1,166 @@
+# Deploys the demo stack to AWS (section 3.6). MANUAL ONLY and DISABLED by default:
+#   - triggered only by workflow_dispatch (Actions tab -> "Deploy to AWS (manual)" -> Run workflow)
+#   - runs only when the repository variable AWS_DEPLOY_ENABLED is "true", and only from main (the IAM roles
+#     trust repo:SandeepKonduruRaju/ai-incident-platform:ref:refs/heads/main and nothing else)
+# No stored AWS keys: GitHub OIDC -> short-lived credentials of the roles created by infra/bootstrap.
+# THIS COSTS MONEY while the stack exists. Destroy it the same day with "Destroy AWS demo (manual)".
+#
+# Repository variables (Settings -> Secrets and variables -> Actions -> Variables; none of them are secrets):
+#   AWS_DEPLOY_ENABLED      "true" to allow this workflow to run
+#   AWS_REGION              e.g. eu-west-2
+#   AWS_DEPLOY_ROLE_ARN     output github_deploy_role_arn of infra/bootstrap
+#   AWS_TERRAFORM_ROLE_ARN  output github_terraform_role_arn of infra/bootstrap
+#   TF_STATE_BUCKET         output state_bucket of infra/bootstrap
+name: Deploy to AWS (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      llm_provider:
+        description: "fake = no API key, no LLM cost. anthropic = put the key into the ANTHROPIC_API_KEY secret first."
+        type: choice
+        options: [fake, anthropic]
+        default: fake
+
+permissions:
+  contents: read
+
+# One deploy or destroy at a time; never cancel one half-way.
+concurrency:
+  group: aws-demo
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy demo (${{ github.sha }})
+    if: vars.AWS_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write # OIDC token for AWS STS
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      IMAGE_TAG: ${{ github.sha }}
+      TF_DIR: infra/envs/demo
+      TF_IN_AUTOMATION: "true"
+      TF_VAR_region: ${{ vars.AWS_REGION }}
+      TF_VAR_image_tag: ${{ github.sha }}
+      TF_VAR_llm_provider: ${{ inputs.llm_provider }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.16.6
+          terraform_wrapper: false
+
+      # ---------------------------------------------------------------- 1. ECR repositories (terraform role)
+      - name: Assume the terraform role
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_TERRAFORM_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: gha-terraform-${{ github.run_id }}
+
+      - name: terraform init (remote state)
+        run: terraform -chdir="$TF_DIR" init -input=false -lockfile=readonly -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" -backend-config="region=${{ vars.AWS_REGION }}"
+
+      # The repositories must exist before the images can be pushed (first deploy); a no-op afterwards.
+      - name: terraform apply (ECR repositories only)
+        run: terraform -chdir="$TF_DIR" apply -input=false -auto-approve -target=module.ecr
+
+      # ---------------------------------------------------------------- 2. Images (least-privilege deploy role)
+      - name: Assume the deploy role
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: gha-deploy-${{ github.run_id }}
+
+      - name: Log in to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
+
+      - name: "Build and push the SHA-tagged images (skipped if the tag exists: tags are immutable)"
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          for image in incident-service investigation-worker; do
+            if aws ecr describe-images --repository-name "$image" --image-ids imageTag="$IMAGE_TAG" >/dev/null 2>&1; then
+              echo "$image:$IMAGE_TAG already in ECR"; continue
+            fi
+            docker build -t "$REGISTRY/$image:$IMAGE_TAG" \
+              --build-arg REVISION="$GITHUB_SHA" --build-arg VERSION="$IMAGE_TAG" \
+              --build-arg CREATED="$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$image"
+            docker push "$REGISTRY/$image:$IMAGE_TAG"
+          done
+
+      # ---------------------------------------------------------------- 3. Infrastructure (terraform role)
+      - name: Assume the terraform role again
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_TERRAFORM_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: gha-terraform-${{ github.run_id }}
+
+      - name: terraform apply (image tag ${{ github.sha }})
+        run: terraform -chdir="$TF_DIR" apply -input=false -auto-approve
+
+      - name: Read the outputs needed by the next steps
+        run: |
+          out() { terraform -chdir="$TF_DIR" output -raw "$1"; }
+          json() { terraform -chdir="$TF_DIR" output -json "$1"; }
+          {
+            echo "ALB_URL=$(out alb_url)"
+            echo "CLUSTER=$(out cluster_name)"
+            echo "SUBNETS=$(json task_subnet_ids | jq -r 'join(",")')"
+            echo "PUBLIC_IP=$(json task_assign_public_ip | jq -r 'if . then "ENABLED" else "DISABLED" end')"
+            echo "ONE_OFF_TASKS=$(json one_off_tasks | jq -c .)"
+            echo "SERVICES=$(json service_names | jq -r '[.incident_service, .investigation_worker] | join(" ")')"
+          } >> "$GITHUB_ENV"
+
+      # ---------------------------------------------------------------- 4. One-off tasks (deploy role)
+      - name: Assume the deploy role again
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: gha-deploy-${{ github.run_id }}
+
+      - name: Run topics, migrations and ingest (one-off Fargate tasks, idempotent)
+        run: |
+          run_task() {
+            local name="$1" family sg arn code
+            family=$(jq -r ".${name}.family" <<<"$ONE_OFF_TASKS")
+            sg=$(jq -r ".${name}.security_group" <<<"$ONE_OFF_TASKS")
+            echo "::group::$name ($family)"
+            arn=$(aws ecs run-task --cluster "$CLUSTER" --launch-type FARGATE --task-definition "$family" \
+              --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$sg],assignPublicIp=$PUBLIC_IP}" \
+              --query 'tasks[0].taskArn' --output text)
+            aws ecs wait tasks-stopped --cluster "$CLUSTER" --tasks "$arn"
+            code=$(aws ecs describe-tasks --cluster "$CLUSTER" --tasks "$arn" --query 'tasks[0].containers[0].exitCode' --output text)
+            echo "$name exit code: $code"
+            echo "::endgroup::"
+            [ "$code" = "0" ]
+          }
+          run_task kafka_topics
+          run_task migrate
+          run_task ingest
+
+      - name: Wait until the services are stable
+        run: |
+          read -ra services <<<"$SERVICES"
+          aws ecs wait services-stable --cluster "$CLUSTER" --services "${services[@]}"
+
+      - name: Smoke test the public health endpoint
+        run: |
+          for attempt in $(seq 1 30); do
+            if curl -fsS --max-time 5 "$ALB_URL/api/v1/health"; then
+              echo; echo "healthy: $ALB_URL/api/v1/health"
+              echo "### Deployed \`$IMAGE_TAG\` - $ALB_URL/api/v1/health is healthy. Destroy it today." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            echo "attempt $attempt: not healthy yet"; sleep 10
+          done
+          exit 1

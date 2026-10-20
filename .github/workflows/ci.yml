@@ -31,6 +31,7 @@ jobs:
       java: ${{ steps.filter.outputs.java }}
       python: ${{ steps.filter.outputs.python }}
       k8s: ${{ steps.filter.outputs.k8s }}
+      infra: ${{ steps.filter.outputs.infra }}
     steps:
       - uses: actions/checkout@v7
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
@@ -47,6 +48,9 @@ jobs:
               - '.github/scripts/**'
             k8s:
               - 'k8s/**'
+              - '.github/workflows/ci.yml'
+            infra:
+              - 'infra/**'
               - '.github/workflows/ci.yml'
 
   k8s:
@@ -80,6 +84,68 @@ jobs:
             echo
             grep '^kind:' /tmp/rendered.yaml | sort | uniq -c | awk '{print "- " $2 ": " $1}'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  terraform:
+    name: Terraform (infra)
+    needs: changes
+    if: github.event_name == 'pull_request' || needs.changes.outputs.infra == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Static checks only: no backend, no AWS credentials, nothing is planned or applied.
+    env:
+      TF_IN_AUTOMATION: "true"
+      TFLINT_IMAGE: ghcr.io/terraform-linters/tflint:v0.64.0
+      TRIVY_IMAGE: aquasec/trivy:0.76.0
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.16.6
+          terraform_wrapper: false
+
+      - name: terraform fmt
+        run: terraform fmt -check -recursive -diff infra
+
+      - name: terraform init (no backend) + validate
+        run: |
+          for root in infra/bootstrap infra/envs/demo; do
+            echo "::group::$root"
+            terraform -chdir="$root" init -backend=false -input=false -lockfile=readonly
+            terraform -chdir="$root" validate
+            echo "::endgroup::"
+          done
+
+      - name: tflint (with the AWS ruleset)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}   # the job's own token: avoids GitHub rate limits when tflint downloads its plugin
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo/infra -e GITHUB_TOKEN --entrypoint sh "$TFLINT_IMAGE" -c '
+            tflint --init --config /repo/infra/.tflint.hcl &&
+            for root in bootstrap envs/demo; do tflint --chdir="$root" --config=/repo/infra/.tflint.hcl --format=compact || exit 1; done'
+
+      - name: Security scan report (trivy config, all severities)
+        if: ${{ !cancelled() }}
+        run: |
+          rc=0
+          docker run --rm -v "$PWD:/repo" -w /repo "$TRIVY_IMAGE" config --quiet --skip-dirs "**/.terraform" --format table --exit-code 1 infra > trivy-config.txt 2>&1 || rc=$?
+          {
+            echo "### Terraform security scan (trivy config)"
+            echo
+            if [ "$rc" -ne 0 ]; then
+              echo '<details><summary>Unaccepted findings (all severities)</summary>'; echo; echo '```'; cat trivy-config.txt; echo '```'; echo '</details>'
+            else
+              echo "No unaccepted findings."
+            fi
+            echo
+            echo "**Accepted findings** (inline \`#trivy:ignore\` with the reason):"
+            echo
+            # shellcheck disable=SC2016  # backticks inside single quotes are literal Markdown, not expansions
+            grep -rn --include='*.tf' --exclude-dir=.terraform '#trivy:ignore:' infra | sed -E 's/^([^:]+):([0-9]+):#trivy:ignore:([A-Z0-9-]+) (.*)$/- `\3` \1:\2 - \4/'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Security gate (fail on HIGH/CRITICAL not accepted inline)
+        run: docker run --rm -v "$PWD:/repo" -w /repo "$TRIVY_IMAGE" config --quiet --skip-dirs "**/.terraform" --severity HIGH,CRITICAL --exit-code 1 infra
 
   java:
     name: incident-service (Java)

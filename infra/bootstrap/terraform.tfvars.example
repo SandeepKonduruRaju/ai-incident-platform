@@ -1,0 +1,4 @@
+# Copy to terraform.tfvars (gitignored) and fill in. No secrets here.
+region             = "eu-west-2"
+budget_alert_email = "you@example.com"
+monthly_budget_usd = 5
