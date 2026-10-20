@@ -41,7 +41,8 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/health", "/error").permitAll()
                         // Only exists when the "dev" profile is active (see DevTokenController).
                         .requestMatchers(HttpMethod.POST, "/api/v1/dev/token").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/v1/incidents", "/api/v1/incidents/*")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/incidents", "/api/v1/incidents/*",
+                                        "/api/v1/incidents/*/investigation")
                                 .hasAnyRole(Role.VIEWER.name(), Role.RESPONDER.name(), Role.ADMIN.name())
                         .requestMatchers(HttpMethod.POST, "/api/v1/incidents")
                                 .hasAnyRole(Role.RESPONDER.name(), Role.ADMIN.name())

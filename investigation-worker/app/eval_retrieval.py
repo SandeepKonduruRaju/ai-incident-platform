@@ -129,7 +129,8 @@ async def _evaluate(k: int, retrieve_k: int, details: bool) -> None:
         await engine.dispose()
 
     header = f"{'k=' + str(k) + ' (* = relevant)':<30} | {'vector-only':^22} | {'hybrid + rerank + caps':^22}"
-    columns = f"{'scenario / tenant':<30} | {'hit@k':>5} {'MRR':>5} {'rel':>3} {'types':>5} | {'hit@k':>5} {'MRR':>5} {'rel':>3} {'types':>5}"
+    metrics = f"{'hit@k':>5} {'MRR':>5} {'rel':>3} {'types':>5}"
+    columns = f"{'scenario / tenant':<30} | {metrics} | {metrics}"
     print(header)
     print(columns)
     print("-" * len(columns))

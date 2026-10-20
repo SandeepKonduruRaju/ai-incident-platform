@@ -7,3 +7,5 @@ pytest-asyncio==1.4.0
 httpx2==2.13.1
 # Real Kafka and PostgreSQL in Docker for the integration tests.
 testcontainers==4.15.0
+# Linter (CI runs "ruff check"; configuration in ruff.toml).
+ruff==0.17.1

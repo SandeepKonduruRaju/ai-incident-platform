@@ -1,50 +1,60 @@
-"""Stub processing: record the event and open a PENDING investigation (no AI yet)."""
+"""Event processing: open (or find) the investigation for an IncidentCreated event, claim it, run it.
+
+Status-aware idempotency (section 2.6). Before, a redelivered event was always skipped, even when the
+worker had crashed in the middle of the investigation, which left it PENDING forever. Now:
+
+    no investigation yet   -> create PENDING (with processed_events, one transaction), then claim and run
+    PENDING or RUNNING     -> claim and (re)run   (RUNNING here means: a previous run died before saving)
+    COMPLETED or FAILED    -> skip (the event was fully handled)
+
+The claim is a conditional UPDATE fenced by run_count, so two concurrent deliveries cannot both run it.
+"""
 
 import logging
-import uuid
-from datetime import UTC, datetime
+from collections.abc import Awaitable, Callable
 
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from app.db import investigations, processed_events
-from app.events import IncidentCreatedEvent
+from app.errors import LLMConfigError
+from app.events import IncidentCreatedEvent, IncidentCreatedPayload
+from app.investigations import TERMINAL, InvestigationRef, claim, ensure_investigation, release
+from app.logging_context import investigation_id_var, value_context
 
 log = logging.getLogger(__name__)
 
+# Runs the investigation graph for a claimed investigation and returns its outcome (COMPLETED / FAILED).
+Investigate = Callable[[InvestigationRef, IncidentCreatedPayload], Awaitable[str]]
+
 
 async def create_investigation(engine: AsyncEngine, event: IncidentCreatedEvent) -> bool:
-    """Idempotent: returns True if an investigation was created, False if the event was a duplicate.
+    """Idempotent create only: True if this event created the PENDING investigation, False if it existed."""
+    ref, created = await ensure_investigation(engine, event)
+    if created:
+        log.info("investigation %s created for incident %s", ref.id, event.payload.incidentId)
+    else:
+        log.info("duplicate, skipping")
+    return created
 
-    Both inserts run in ONE transaction (engine.begin() commits at the end, rolls back on error),
-    like a @Transactional method: either the event is marked processed AND the investigation
-    exists, or neither.
-    """
-    now = datetime.now(UTC)
-    async with engine.begin() as conn:
-        # ON CONFLICT DO NOTHING + RETURNING: returns the row only if WE inserted it. If another
-        # transaction is inserting the same event_id concurrently, Postgres makes us wait for it,
-        # then does nothing, so exactly one of them creates the investigation.
-        inserted = await conn.execute(
-            pg_insert(processed_events)
-            .values(event_id=event.eventId, event_type=event.eventType, processed_at=now)
-            .on_conflict_do_nothing(index_elements=[processed_events.c.event_id])
-            .returning(processed_events.c.event_id)
-        )
-        if inserted.first() is None:
-            log.info("duplicate, skipping")
-            return False
 
-        investigation_id = uuid.uuid4()
-        await conn.execute(
-            investigations.insert().values(
-                id=investigation_id,
-                incident_id=event.payload.incidentId,
-                tenant_id=event.tenantId,
-                status="PENDING",
-                request_id=event.requestId,
-                created_at=now,
-            )
-        )
-    log.info("investigation %s created for incident %s", investigation_id, event.payload.incidentId)
-    return True
+async def process_event(engine: AsyncEngine, investigate: Investigate, event: IncidentCreatedEvent) -> str:
+    """Returns what happened: COMPLETED, FAILED or SKIPPED. Raises LLMConfigError after releasing the claim."""
+    ref, created = await ensure_investigation(engine, event)
+    with value_context(investigation_id_var, str(ref.id)):
+        if created:
+            log.info("investigation %s created for incident %s", ref.id, event.payload.incidentId)
+        if ref.status in TERMINAL:
+            log.info("investigation already %s, skipping redelivered event", ref.status)
+            return "SKIPPED"
+        if not created:
+            log.info("investigation is %s after a redelivery: claiming it again", ref.status)
+
+        claimed = await claim(engine, ref)
+        if claimed is None:
+            log.info("investigation was claimed by another run, skipping")
+            return "SKIPPED"
+
+        try:
+            return await investigate(claimed, event.payload)
+        except LLMConfigError:
+            await release(engine, claimed)  # back to PENDING: re-runnable once the key/model is fixed
+            raise

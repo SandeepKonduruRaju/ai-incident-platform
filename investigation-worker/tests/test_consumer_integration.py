@@ -14,8 +14,8 @@ from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 from aiokafka.admin import AIOKafkaAdminClient
 from aiokafka.errors import KafkaError
 from fastapi.testclient import TestClient
-from sqlalchemy import func, select
 from sqlalchemy import exc as sa_exc
+from sqlalchemy import func, select
 
 from app.config import Settings, get_settings
 from app.consumer import IncidentEventConsumer
@@ -290,6 +290,7 @@ async def test_lifespan_starts_and_stops_the_consumer(kafka_bootstrap, topics, d
     monkeypatch.setenv("KAFKA_TOPIC", topics[0])  # must exist: auto-create is off
     monkeypatch.setenv("KAFKA_GROUP_ID", f"lifespan-{uuid.uuid4().hex[:8]}")
     monkeypatch.setenv("DATABASE_URL", database_url)
+    monkeypatch.setenv("INTERNAL_API_TOKEN", "test-only-internal-token")  # required since 2.7
     get_settings.cache_clear()
     from app.main import app
 
@@ -298,14 +299,14 @@ async def test_lifespan_starts_and_stops_the_consumer(kafka_bootstrap, topics, d
             deadline = time.monotonic() + 30
             while client.get("/health").json()["consumer"] != "running":
                 assert time.monotonic() < deadline, "consumer did not reach 'running'"
-                time.sleep(0.2)
+                time.sleep(0.2)  # noqa: ASYNC251 - deliberate, see docstring
             assert client.get("/health").status_code == 200
             consumer = app.state.consumer
         assert consumer.state == "stopped"
         assert not consumer.is_alive
     finally:
         get_settings.cache_clear()
-        for name in ("consumer", "consumer_enabled"):
+        for name in ("consumer", "consumer_enabled", "engine"):
             if hasattr(app.state, name):
                 delattr(app.state, name)
 

@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 import pytest
@@ -36,7 +36,7 @@ def test_parses_real_event():
     assert event.eventId == UUID("c51c3b96-ecd8-465b-960b-5284fcf8e231")
     assert event.eventType == "IncidentCreated"
     assert event.schemaVersion == 1
-    assert event.occurredAt == datetime(2026, 10, 16, 16, 51, 50, 641109, tzinfo=timezone.utc)
+    assert event.occurredAt == datetime(2026, 10, 16, 16, 51, 50, 641109, tzinfo=UTC)
     assert event.tenantId == "acme"
     assert event.requestId == "live-test-1"
     assert event.payload.incidentId == UUID("1cd4a481-5a9b-42cd-97c1-844f974321f3")

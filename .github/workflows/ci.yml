@@ -1,0 +1,154 @@
+# CI for both services. Needs no secrets: tests use LLM_PROVIDER=fake and Testcontainers on the runner's Docker.
+#
+# Action pinning: GitHub-owned actions (actions/*) are pinned to their major version tag (maintained by
+# GitHub, get security fixes). The one third-party action is pinned to a full commit SHA, because a tag
+# can be moved by its owner and the action could then run different code with access to this repo.
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+# A newer push to the same branch/PR cancels the run in progress.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read   # paths-filter lists PR files through the API
+    outputs:
+      java: ${{ steps.filter.outputs.java }}
+      python: ${{ steps.filter.outputs.python }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        with:
+          filters: |
+            java:
+              - 'incident-service/**'
+              - '.github/workflows/ci.yml'
+              - '.github/scripts/**'
+            python:
+              - 'investigation-worker/**'
+              - '.github/workflows/ci.yml'
+              - '.github/scripts/**'
+
+  java:
+    name: incident-service (Java)
+    needs: changes
+    # Pull requests to main always run both jobs (they are the required checks).
+    if: github.event_name == 'pull_request' || needs.changes.outputs.java == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: incident-service
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+          cache-dependency-path: incident-service/pom.xml
+
+      # mvnw is stored in git without the executable bit (mode 100644).
+      - name: Make the Maven wrapper executable
+        run: chmod +x mvnw
+
+      - name: Build and test (unit + Testcontainers integration tests)
+        run: ./mvnw -B -ntp verify
+
+      - name: Test summary and proof that the integration tests ran
+        if: ${{ !cancelled() }}
+        run: >
+          python3 ../.github/scripts/check_junit.py target/surefire-reports
+          --title "incident-service tests"
+          --require-passed IncidentApiIntegrationTest
+          --require-passed OutboxKafkaIntegrationTest
+
+      - name: Upload surefire reports
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: surefire-reports
+          path: incident-service/target/surefire-reports/
+          retention-days: 14
+
+  python:
+    name: investigation-worker (Python)
+    needs: changes
+    if: github.event_name == 'pull_request' || needs.changes.outputs.python == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: investigation-worker
+    env:
+      LLM_PROVIDER: fake                       # tests/conftest.py forces it too; no API key anywhere
+      FASTEMBED_CACHE_PATH: ${{ github.workspace }}/.cache/fastembed   # fastembed's own default lookup
+      EMBEDDING_CACHE_DIR: ${{ github.workspace }}/.cache/fastembed    # the app's setting, same folder
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            investigation-worker/requirements.txt
+            investigation-worker/requirements-dev.txt
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements-dev.txt
+
+      # ~150 MB of ONNX models (embedding + cross-encoder) downloaded from Hugging Face on a cache miss.
+      - name: Cache fastembed models
+        uses: actions/cache@v6
+        with:
+          path: ${{ github.workspace }}/.cache/fastembed
+          key: fastembed-${{ runner.os }}-bge-small-en-v1.5-ms-marco-MiniLM-L-6-v2-${{ hashFiles('investigation-worker/requirements.txt') }}
+          restore-keys: fastembed-${{ runner.os }}-bge-small-en-v1.5-ms-marco-MiniLM-L-6-v2-
+
+      - name: Lint (ruff)
+        run: ruff check --output-format=github .
+
+      - name: Tests (unit + Testcontainers integration)
+        run: python -m pytest -q -rs --junitxml=test-results/pytest.xml
+
+      - name: Eval pipeline smoke test (FakeLLM)
+        run: python -m pytest -m eval_smoke -q --junitxml=test-results/eval-smoke.xml
+
+      - name: Test summary and proof that the integration tests ran
+        if: ${{ !cancelled() }}
+        run: >
+          python ../.github/scripts/check_junit.py test-results/pytest.xml
+          --title "investigation-worker tests"
+          --allow-skip "^live LLM test"
+          --require-passed tests.test_search_integration
+          --require-passed tests.test_search_relevance
+          --require-passed tests.test_consumer_integration
+          --require-passed tests.test_investigation_integration
+          --require-passed tests.test_eval_smoke
+
+      - name: Upload JUnit XML
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: pytest-junit
+          path: investigation-worker/test-results/
+          retention-days: 14
