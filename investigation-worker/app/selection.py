@@ -7,7 +7,7 @@ explains the fix never reaches the LLM. Caps keep the evidence diverse; slots a 
 
 from collections import Counter
 from collections.abc import Mapping, Sequence
-from typing import Protocol, TypeVar
+from typing import Protocol
 
 DEFAULT_SOURCE_CAPS: dict[str, int] = {"log": 3, "runbook": 2, "incident": 1, "metric": 2}
 FINAL_K_RANGE = (1, 20)
@@ -22,8 +22,6 @@ class Scored(Protocol):
     def rerank_score(self) -> float: ...
 
 
-T = TypeVar("T", bound=Scored)
-
 
 def validate_k(*, retrieve_k: int, final_k: int) -> None:
     for name, value, (low, high) in (
@@ -34,7 +32,7 @@ def validate_k(*, retrieve_k: int, final_k: int) -> None:
             raise ValueError(f"{name} must be between {low} and {high}, got {value}")
 
 
-def apply_source_caps(scored_chunks: Sequence[T], caps: Mapping[str, int], final_k: int) -> list[T]:
+def apply_source_caps[T: Scored](scored_chunks: Sequence[T], caps: Mapping[str, int], final_k: int) -> list[T]:
     """Up to final_k chunks, ordered by rerank_score descending (stable for equal scores).
 
     Pass 1 takes chunks in score order while their type is under its cap (types without a cap: 0).

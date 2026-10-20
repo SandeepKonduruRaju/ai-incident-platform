@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from app.chunking import chunk_dataset
-from app.eval_investigation import EvalContext, EvalOptions, EvalCase, load_cases, matches_expected, run_eval, write_reports
+from app.eval_investigation import EvalCase, EvalContext, EvalOptions, load_cases, matches_expected, run_eval, write_reports
 from app.eval_judge import JUDGE_PROMPT_VERSION, FakeJudgeLLM
 from app.events import IncidentCreatedPayload
 from app.graph import GraphDeps

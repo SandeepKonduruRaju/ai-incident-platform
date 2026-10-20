@@ -29,8 +29,8 @@ from uuid import UUID
 from langgraph.graph import END, START, StateGraph
 from pydantic import ValidationError
 
-from app.events import IncidentCreatedPayload
 from app.errors import PermanentLLMError, TransientLLMError
+from app.events import IncidentCreatedPayload
 from app.investigations import InvestigationRef, Usage
 from app.llm import LLM, LLMResponse
 from app.logging_context import investigation_id_var, node_var, value_context

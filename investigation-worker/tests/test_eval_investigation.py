@@ -23,8 +23,8 @@ from app.eval_investigation import (
     rate,
     schema_valid,
 )
-from app.events import IncidentCreatedPayload
 from app.eval_judge import FakeJudgeLLM, build_judge_message, findings_of, parse_judge
+from app.events import IncidentCreatedPayload
 from app.ingest import DEFAULT_DATA_DIR
 from app.llm import FakeLLM
 from app.llm_cache import Budget, BudgetExceeded, CachingLLM, cost_usd

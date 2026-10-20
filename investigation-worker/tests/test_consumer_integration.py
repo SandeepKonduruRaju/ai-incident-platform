@@ -14,8 +14,8 @@ from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 from aiokafka.admin import AIOKafkaAdminClient
 from aiokafka.errors import KafkaError
 from fastapi.testclient import TestClient
-from sqlalchemy import func, select
 from sqlalchemy import exc as sa_exc
+from sqlalchemy import func, select
 
 from app.config import Settings, get_settings
 from app.consumer import IncidentEventConsumer
@@ -299,7 +299,7 @@ async def test_lifespan_starts_and_stops_the_consumer(kafka_bootstrap, topics, d
             deadline = time.monotonic() + 30
             while client.get("/health").json()["consumer"] != "running":
                 assert time.monotonic() < deadline, "consumer did not reach 'running'"
-                time.sleep(0.2)
+                time.sleep(0.2)  # noqa: ASYNC251 - deliberate, see docstring
             assert client.get("/health").status_code == 200
             consumer = app.state.consumer
         assert consumer.state == "stopped"

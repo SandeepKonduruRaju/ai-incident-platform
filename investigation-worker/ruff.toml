@@ -1,0 +1,28 @@
+# Ruff linter configuration (CI runs `ruff check .`; no formatter is enforced yet).
+target-version = "py313"
+# The code base already uses up to ~140 columns (long f-strings, SQL, log formats).
+line-length = 140
+extend-exclude = ["scratch_*.py", "reports", ".eval_cache"]
+
+[lint]
+select = [
+    "E", "W",   # pycodestyle errors and warnings
+    "F",        # pyflakes: unused imports/variables, undefined names
+    "I",        # import sorting (isort)
+    "B",        # flake8-bugbear: likely bugs and design problems
+    "UP",       # pyupgrade: modern syntax for the target Python version
+    "ASYNC",    # flake8-async: blocking calls and timeouts in async code
+    "SIM",      # flake8-simplify
+]
+
+[lint.per-file-ignores]
+# Test helpers poll with their own deadline loop and a `timeout` argument on purpose (readable failure
+# messages); production code uses asyncio.timeout.
+"tests/**" = ["ASYNC109"]
+
+[lint.flake8-bugbear]
+# FastAPI's dependency-injection markers are designed to be called in argument defaults.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Header"]
+
+[lint.isort]
+known-first-party = ["app", "tests"]

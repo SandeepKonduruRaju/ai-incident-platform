@@ -90,17 +90,29 @@ def _vector_near(base: list[float], rng: random.Random, noise: float) -> list[fl
     return [b + rng.uniform(-noise, noise) for b in base]
 
 
-async def _insert_raw(engine, tenant: str, vectors: list[list[float]]) -> None:
+HNSW_INDEX = "ix_chunks_embedding_hnsw"
+
+
+async def _bulk_insert_raw(engine, vectors_by_tenant: dict[str, list[list[float]]]) -> None:
+    """Bulk load the way pgvector recommends: drop the HNSW index, insert, build the index once.
+
+    Inserting 2000 tightly clustered vectors one by one INTO the index took ~8.5 s (each insert walks the
+    graph), close to the engine's 10 s command_timeout: the fixture timed out whenever the machine was busy
+    (e.g. during the full suite). Without the index the insert takes ~0.5 s and the build ~1.7 s.
+    One transaction (PostgreSQL DDL is transactional), and the index is recreated from its own definition
+    in pg_indexes, so it can never be left missing or drift from the migration.
+    """
     rows = [
-        {
-            "id": uuid.uuid4(),
-            "tenant": tenant,
-            "source_id": f"RAW-{tenant}-{i:05d}",
-            "embedding": to_vector_literal(vector),
-        }
-        for i, vector in enumerate(vectors)
+        {"id": uuid.uuid4(), "tenant": tenant, "source_id": f"RAW-{tenant}-{i:05d}", "embedding": to_vector_literal(v)}
+        for tenant, vectors in vectors_by_tenant.items()
+        for i, v in enumerate(vectors)
     ]
     async with engine.begin() as conn:
+        definition = (
+            await conn.execute(text("SELECT indexdef FROM pg_indexes WHERE schemaname = 'worker' AND indexname = :n"),
+                               {"n": HNSW_INDEX})
+        ).scalar_one()
+        await conn.execute(text(f"DROP INDEX worker.{HNSW_INDEX}"))
         await conn.execute(
             text(
                 "INSERT INTO worker.chunks (id, tenant_id, source_type, source_id, chunk_index, content, embedding) "
@@ -108,6 +120,7 @@ async def _insert_raw(engine, tenant: str, vectors: list[list[float]]) -> None:
             ),
             rows,
         )
+        await conn.execute(text(definition))
 
 
 @pytest.fixture
@@ -125,8 +138,10 @@ async def skewed_tenants(clean_engine, database_url):
     rng = random.Random(7)
     query = [1.0] + [0.0] * (DIM - 1)
     far = [-1.0] + [0.0] * (DIM - 1)
-    await _insert_raw(clean_engine, "big", [_vector_near(query, rng, 0.05) for _ in range(2000)])
-    await _insert_raw(clean_engine, "small", [_vector_near(far, rng, 0.05) for _ in range(8)])
+    await _bulk_insert_raw(clean_engine, {
+        "big": [_vector_near(query, rng, 0.05) for _ in range(2000)],
+        "small": [_vector_near(far, rng, 0.05) for _ in range(8)],
+    })
 
     async with clean_engine.begin() as conn:
         await conn.execute(text("ANALYZE worker.chunks"))  # real row counts per tenant for the planner

@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import exc as sa_exc
 from sqlalchemy import select, text
 
-from app.db import create_engine, investigations
+from app.db import investigations
 from app.embedding import FakeEmbedder
 from app.errors import LLMConfigError
 from app.events import IncidentCreatedEvent

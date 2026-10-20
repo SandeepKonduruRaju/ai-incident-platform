@@ -142,12 +142,17 @@ def render_limitations(run: dict[str, Any]) -> str:
 
 def render_markdown(run: dict[str, Any]) -> str:
     options = run["options"]
-    stopped = f"\n\n> **Stopped early**: {run['stopped_early']}. Skipped: {', '.join(run['skipped_cases']) or 'consistency re-runs'}." if run["stopped_early"] else ""
+    skipped = ", ".join(run["skipped_cases"]) or "consistency re-runs"
+    stopped = f"\n\n> **Stopped early**: {run['stopped_early']}. Skipped: {skipped}." if run["stopped_early"] else ""
+    meta = " · ".join([
+        f"Run {run['started_at']}", f"provider `{options['provider']}`", f"model `{options['model']}`",
+        f"judge `{options['judge_model']}`", f"prompt `{options['prompt_version']}`", f"{options['cases_selected']} cases",
+    ])
     return f"""# Investigation quality evaluation
 
 > Synthetic evaluation set (Claude-generated cases, `data/eval/cases.json`); not real incidents.
 
-Run {run['started_at']} · provider `{options['provider']}` · model `{options['model']}` · judge `{options['judge_model']}` · prompt `{options['prompt_version']}` · {options['cases_selected']} cases{stopped}
+{meta}{stopped}
 
 ## Summary
 

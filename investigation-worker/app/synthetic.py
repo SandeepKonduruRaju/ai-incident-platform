@@ -547,7 +547,7 @@ def _scenario_items(seed: int, tenant: str, scenario: str) -> dict[str, list[dic
             "level": level,
             "message": render(message),
         }
-        for index, ((level, message), offset) in enumerate(zip(log_templates, offsets), start=1)
+        for index, ((level, message), offset) in enumerate(zip(log_templates, offsets, strict=True), start=1)
     ]
     metrics = [
         {

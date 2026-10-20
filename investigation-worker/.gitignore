@@ -8,3 +8,5 @@ scratch_*.py
 # Evaluation output (section 2.8): raw reports and cached LLM responses. The committed summary is docs/evaluation.md.
 reports/
 .eval_cache/
+# JUnit XML written by CI (pytest --junitxml).
+test-results/

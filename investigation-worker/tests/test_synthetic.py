@@ -33,7 +33,7 @@ def test_every_scenario_has_all_four_evidence_types_per_tenant():
 def test_golden_ids_exist_and_belong_to_their_tenant():
     dataset = generate()
     by_id = {item["source_id"]: item for kind in EVIDENCE_TYPES for item in dataset[kind]}
-    for scenario, tenants in dataset["golden"].items():
+    for _scenario, tenants in dataset["golden"].items():
         for tenant, kinds in tenants.items():
             for kind, ids in kinds.items():
                 for source_id in ids:
