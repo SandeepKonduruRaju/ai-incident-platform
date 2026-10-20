@@ -106,7 +106,7 @@ jobs:
         run: chmod +x mvnw
 
       - name: Build and test (unit + Testcontainers integration tests)
-        run: ./mvnw -B -ntp verify
+        run: ./mvnw -B -ntp -Dmaven.wagon.http.retryHandler.count=3 verify
 
       - name: Test summary and proof that the integration tests ran
         if: ${{ !cancelled() }}
