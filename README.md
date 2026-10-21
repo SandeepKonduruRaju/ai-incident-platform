@@ -189,6 +189,61 @@ Then use the API through the ingress at http://localhost/api/... (same calls as 
 - **CI:** the "Kubernetes manifests" job renders the overlay and validates it with kubeconform (strict, Kubernetes 1.37
   schemas), with no cluster and no secrets.
 
+## Continuous Deployment (GitOps)
+
+Deployments are **pulled**, not pushed. CI never touches the cluster; Argo CD runs inside it and keeps it equal to
+`k8s/overlays/gitops` on `main`.
+
+```mermaid
+flowchart LR
+    Dev[git push / merge to main] --> CI[GitHub Actions CI<br/>tests, lint, image build + Trivy]
+    CI -->|push :full-sha| GHCR[(GHCR<br/>incident-service, investigation-worker)]
+    CI -->|opens PR: bump newTag<br/>in k8s/overlays/gitops| PR[deploy gitops PR]
+    PR -->|review + merge = deploy| Main[(main branch)]
+    Argo[Argo CD in the cluster] -->|watches| Main
+    Argo -->|sync waves: data, Jobs, apps| K8s[kind / EKS cluster]
+    K8s -->|pull images| GHCR
+```
+
+1. **Images:** on every push to `main` that changes app code, CI builds, scans and pushes both images to GHCR,
+   tagged with the full commit SHA.
+2. **Bump PR:** the `gitops-bump` job opens (or updates) one PR, on branch `gitops/image-bump`, that changes
+   `k8s/overlays/gitops/kustomization.yaml` (via `scripts/gitops-bump.py`). Main is never pushed to directly.
+   - The two app image tags always move to the new commit.
+   - The ingest Job's image tag and its `synthetic-data-sha256` annotation move only when
+     `investigation-worker/data/synthetic` changed. A release therefore doesn't re-run the slow ingest; new data
+     does.
+3. **Deploy:** merging that PR is the deployment. Argo CD (automated sync, prune, selfHeal) applies it in sync
+   waves:
+   1. Postgres and Kafka;
+   2. the topics Job;
+   3. the ingest Job, which runs migrations;
+   4. the two Deployments;
+   5. Ingress, HPA and PDB.
+4. **Drift:** a manual `kubectl edit` is reverted by selfHeal. incident-service's replica count is excluded,
+   because the HPA owns it.
+5. **Rollback:** `git revert` the merge commit of the bad bump PR (via a PR). Argo CD syncs the previous SHA back.
+   Nothing needs to be rebuilt: ECR/GHCR still hold the old images.
+
+**Install locally:** `.\scripts\argocd-up.ps1`. It creates the cluster (`k8s-up.ps1 -SkipApps`: add-ons, namespace,
+secrets), installs Argo CD v3.5.6 and applies `k8s/argocd/`. Then:
+- **UI:** `kubectl -n argocd port-forward svc/argocd-server 8443:443`, open https://localhost:8443, user `admin`.
+- **Password:** the script prints the command that reads it from `argocd-initial-admin-secret`.
+
+Don't also run `k8s-up.ps1` without `-SkipApps` on the same cluster: both would manage the same resources.
+
+**Secrets are not in git.** `scripts/k8s-secrets.ps1` creates them before Argo CD syncs, and the AppProject forbids
+Secret resources from the repo. It's a pragmatic local trade-off: a new cluster needs the script once, and secret
+rotation is outside GitOps. Production uses Sealed Secrets (encrypted in git) or External Secrets (synced from AWS
+Secrets Manager).
+
+**On EKS:**
+- The same Application and overlay pattern, with an `overlays/eks` directory.
+- Argo CD is installed in the EKS cluster.
+- Images come from ECR instead of GHCR (the bump job targets ECR).
+- Secrets come from External Secrets Operator reading Secrets Manager.
+- An ALB Ingress replaces ingress-nginx.
+
 ## AWS (Terraform)
 
 `infra/` describes an AWS deployment as code:

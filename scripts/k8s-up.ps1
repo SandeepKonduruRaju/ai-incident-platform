@@ -19,7 +19,9 @@
 param(
     [string]$ClusterName = "incident-platform",
     [string]$Tag,
-    [switch]$SkipBuild
+    [switch]$SkipBuild,
+    # GitOps mode (section 3.7): cluster, add-ons, namespace and secrets only; Argo CD deploys the apps.
+    [switch]$SkipApps
 )
 # Native tools (kind, kubectl, docker) write progress and expected "not found" messages to stderr; Windows
 # PowerShell 5.1 would turn those into terminating errors under "Stop". Exit codes are checked explicitly instead.
@@ -53,6 +55,13 @@ try {
 
     Step "metrics-server"
     kubectl apply -k k8s/addons/metrics-server | Out-Null; Assert-Ok "metrics-server apply"
+
+    if ($SkipApps) {
+        Step "namespace and secrets (apps are deployed by Argo CD: scripts/argocd-up.ps1)"
+        kubectl apply -f k8s/base/namespace.yaml | Out-Null; Assert-Ok "namespace"
+        & (Join-Path $PSScriptRoot "k8s-secrets.ps1") -Namespace $namespace
+        return
+    }
 
     if (-not $Tag) {
         $Tag = (git rev-parse --short HEAD).Trim()

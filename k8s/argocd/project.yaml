@@ -1,0 +1,22 @@
+# Argo CD project for the platform (section 3.7): which repository may be deployed, where, and what.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: incident-platform
+  namespace: argocd
+spec:
+  description: ai-incident-platform (GitOps from main)
+  sourceRepos:
+    - https://github.com/SandeepKonduruRaju/ai-incident-platform.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: incident-platform
+  # Cluster-scoped: only the application's own Namespace (no CRDs, ClusterRoles, ... from this repo).
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+  # Secrets are never in git: they are created by scripts/k8s-secrets.ps1 (see README). Denying them here
+  # makes sure a Secret committed by mistake is rejected instead of deployed.
+  namespaceResourceBlacklist:
+    - group: ""
+      kind: Secret

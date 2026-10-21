@@ -100,13 +100,15 @@ spec:
                 name: worker-config
             - secretRef:
                 name: worker-secrets
-          # Loading the two ONNX models takes 10-60 s on a busy laptop: liveness only starts after this succeeds.
+          # Loading the two ONNX models takes 10-60 s on an idle laptop, but more than 3 min while the node is busy
+          # (rollout + ingest on the same node: pods were killed mid-load at 36 x 5 s). Allowance: 72 x 5 s = 6 min.
+          # Liveness only starts after this succeeds.
           startupProbe:
             httpGet:
               path: /livez
               port: http
             periodSeconds: 5
-            failureThreshold: 36
+            failureThreshold: 72
           # Restart only if the consumer loop crashed. Not the DB, Kafka or the LLM key: a restart cannot fix
           # those, so it would only crash-loop every replica during an outage of a dependency.
           livenessProbe:

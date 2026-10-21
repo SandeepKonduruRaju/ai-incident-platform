@@ -1,0 +1,42 @@
+# The platform as an Argo CD Application (section 3.7): Argo CD in the cluster PULLS k8s/overlays/gitops from
+# the main branch and keeps the cluster equal to it.
+#   automated sync: every change merged to main is applied (a merged image-bump PR = a deployment)
+#   prune:          resources removed from git are removed from the cluster
+#   selfHeal:       manual changes in the cluster (kubectl edit/scale) are reverted to git
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: incident-platform
+  namespace: argocd
+  # Deleting the Application also deletes what it deployed (not the Namespace's Secrets: they are not Argo's).
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: incident-platform
+  source:
+    repoURL: https://github.com/SandeepKonduruRaju/ai-incident-platform.git
+    targetRevision: main
+    path: k8s/overlays/gitops
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: incident-platform
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - RespectIgnoreDifferences=true
+      - PruneLast=true   # delete removed resources only after the new ones are healthy
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
+  # The HPA owns incident-service's replica count: without this, selfHeal and the HPA would fight forever.
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      name: incident-service
+      jsonPointers:
+        - /spec/replicas
