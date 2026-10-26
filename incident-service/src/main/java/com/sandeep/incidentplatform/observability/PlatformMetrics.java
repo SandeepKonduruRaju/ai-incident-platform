@@ -53,6 +53,25 @@ public class PlatformMetrics {
         counter("worker.client.errors", "Failed calls to the investigation worker", "kind", kind.label()).increment();
     }
 
+    // Milestone 4 (Redis). cache: which cache ("investigation"); endpoint/operation: fixed names, never tenants.
+    public void cacheHit(String cache) {
+        counter("cache.hits", "Cache lookups answered from Redis", "cache", cache).increment();
+    }
+
+    public void cacheMiss(String cache) {
+        counter("cache.misses", "Cache lookups not found in Redis (read from the source)", "cache", cache).increment();
+    }
+
+    public void rateLimited(String endpoint) {
+        counter("rate.limited", "Requests refused with 429 by the per-tenant rate limit", "endpoint", endpoint)
+                .increment();
+    }
+
+    public void redisError(String operation) {
+        counter("redis.errors", "Failed Redis calls; the request continued without Redis (fail open)",
+                "operation", operation).increment();
+    }
+
     private Counter counter(String name, String description, String tagKey, String tagValue) {
         return Counter.builder(name).description(description).tag(tagKey, tagValue).register(registry);
     }

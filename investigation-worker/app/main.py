@@ -1,5 +1,6 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import timedelta
 from functools import partial
 
 from fastapi import FastAPI, Request, Response
@@ -16,6 +17,7 @@ from app.llm import build_llm
 from app.logging_context import configure_logging
 from app.metrics import start_metrics_server, stop_metrics_server
 from app.processing import process_event
+from app.reaper import StaleRunReaper, reap_stale
 from app.tracing import configure_tracing, shutdown_tracing
 
 
@@ -41,11 +43,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.consumer = consumer
     app.state.consumer_enabled = settings.consumer_enabled
     start_metrics_server(settings.metrics_port)  # /metrics on its own port, not the API port
+    reaper = StaleRunReaper(
+        partial(reap_stale, engine, threshold=timedelta(minutes=settings.stale_running_threshold_minutes)),
+        interval_seconds=settings.reaper_interval_seconds,
+    )
     if settings.consumer_enabled:
         await consumer.start()  # returns immediately; the loop runs as a background task
+    if settings.reaper_enabled:
+        await reaper.start()
     try:
         yield
     finally:
+        await reaper.stop()
         await consumer.stop()  # graceful: cancel the task and wait for it to close the Kafka clients
         await engine.dispose()
         stop_metrics_server()

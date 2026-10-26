@@ -198,6 +198,28 @@ async def release(engine: AsyncEngine, ref: InvestigationRef) -> bool:
         return result.rowcount == 1
 
 
+async def find_stale_running(engine: AsyncEngine, *, started_before: datetime, limit: int = 100) -> list[InvestigationRef]:
+    """RUNNING rows whose run started before the cutoff, oldest first (milestone 4: the stale-run reaper).
+
+    Across all tenants on purpose: this is a system maintenance query (it reads ids only, no tenant data), and
+    every row it touches is then updated by id + run_count.
+    """
+    query = (
+        select(*_REF_COLUMNS)
+        .where(investigations.c.status == "RUNNING", investigations.c.started_at < started_before)
+        .order_by(investigations.c.started_at, investigations.c.id)
+        .limit(limit)
+    )
+    async with engine.connect() as conn:
+        return [_ref(row) for row in (await conn.execute(query)).all()]
+
+
+async def mark_stale_failed(engine: AsyncEngine, ref: InvestigationRef, reason: str) -> bool:
+    """FAILED for a run that stopped making progress. Fenced like every save: if the row was claimed again in the
+    meantime (run_count changed) or finished, nothing is updated and False is returned."""
+    return await _finish(engine, ref, {"status": "FAILED", "failure_reason": reason, "completed_at": datetime.now(UTC)})
+
+
 async def find_by_status(
     engine: AsyncEngine, status: str, *, tenant_id: str | None = None, limit: int = 10
 ) -> list[tuple[InvestigationRef, dict[str, Any] | None]]:

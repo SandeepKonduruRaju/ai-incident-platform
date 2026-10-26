@@ -1,7 +1,7 @@
 # GitOps overlay (section 3.7): what Argo CD deploys from the main branch (k8s/argocd/application.yaml).
 # Same as the local overlay (dev profile, fake LLM), but:
 #   - images come from GHCR, tagged with the full git SHA of the commit CI built them from. CI opens a pull
-#     request that bumps the two newTag lines below; merging it = deploying (Argo CD syncs main).
+#     request that bumps the app newTag lines below; merging it = deploying (Argo CD syncs main).
 #   - Argo CD sync waves bring the dependencies up in order: Postgres + Kafka -> topics Job -> ingest Job
 #     (which runs the migrations first) -> the two Deployments -> Ingress, HPA, PDB.
 #   - the Jobs are adapted to GitOps: kept after completion (a TTL-deleted Job would look like drift) and
@@ -22,6 +22,9 @@ images:
     newTag: 22a9501305f7e272592a4ad1dfe92305449a1134
   - name: investigation-worker
     newName: ghcr.io/sandeepkondururaju/investigation-worker
+    newTag: 22a9501305f7e272592a4ad1dfe92305449a1134
+  - name: frontend
+    newName: ghcr.io/sandeepkondururaju/frontend
     newTag: 22a9501305f7e272592a4ad1dfe92305449a1134
   # The worker-ingest Job: same image, but only bumped when the synthetic data changes (see the header).
   - name: investigation-worker-ingest

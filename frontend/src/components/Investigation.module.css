@@ -1,0 +1,161 @@
+.panel {
+  margin-top: 1.5rem;
+  padding: 1.25rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.header {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.header h2 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.result {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 1.5rem;
+}
+
+@media (max-width: 800px) {
+  .result {
+    grid-template-columns: 1fr;
+  }
+}
+
+.content h3 {
+  margin: 1.1rem 0 0.3rem;
+  font-size: 1rem;
+}
+
+.label {
+  color: var(--muted);
+}
+
+.confidence {
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.confidence_high { color: #2e7d4a; }
+.confidence_medium { color: #9a6b00; }
+.confidence_low { color: #b03a2e; }
+
+.meta {
+  margin-top: 1.25rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.marker {
+  margin: 0 0.15rem;
+  padding: 0 0.35rem;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.markerActive {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.citation {
+  align-self: start;
+  position: sticky;
+  top: 1rem;
+  padding: 1rem;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+}
+
+.citation h4 {
+  margin: 0 0 0.5rem;
+}
+
+.citation dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.25rem 0.75rem;
+  margin: 0;
+}
+
+.citation dt {
+  color: var(--muted);
+}
+
+.citation dd {
+  margin: 0;
+}
+
+.citation blockquote {
+  margin: 0.75rem 0 0;
+  padding-left: 0.75rem;
+  border-left: 3px solid var(--border);
+  color: var(--muted);
+}
+
+.progress {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  color: var(--muted);
+}
+
+.spinner {
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.warning {
+  padding: 0.6rem 0.9rem;
+  border-radius: var(--radius);
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+
+.requestId {
+  font-size: 0.85rem;
+}
+
+.failed {
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius);
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.failed p {
+  margin: 0.35rem 0 0;
+}
+
+.hint {
+  color: var(--muted);
+  margin: 0;
+}

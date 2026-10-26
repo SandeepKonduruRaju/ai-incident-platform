@@ -122,6 +122,31 @@ locals {
   }
 }
 
+# OPTIONAL Redis (milestone 4), off by default: see var.enable_redis for the cost.
+module "redis" {
+  source = "../../modules/elasticache"
+  count  = var.enable_redis ? 1 : 0
+
+  name                      = local.name
+  vpc_id                    = module.network.vpc_id
+  subnet_ids                = module.network.private_subnet_ids
+  client_security_group_ids = [module.security_groups.incident_service_id]
+}
+
+locals {
+  # Without Redis, incident-service runs with the cache and the rate limit off (supported, see RedisGuard).
+  incident_service_redis_environment = var.enable_redis ? {
+    REDIS_HOST                    = module.redis[0].address
+    REDIS_PORT                    = tostring(module.redis[0].port)
+    SPRING_DATA_REDIS_SSL_ENABLED = "true"
+    REDIS_CACHE_ENABLED           = "true"
+    RATE_LIMIT_ENABLED            = "true"
+    } : {
+    REDIS_CACHE_ENABLED = "false"
+    RATE_LIMIT_ENABLED  = "false"
+  }
+}
+
 module "incident_service" {
   source = "../../modules/ecs_service"
 
@@ -133,14 +158,14 @@ module "incident_service" {
   cpu                = 512
   memory             = 1024 # JVM heap = 75% of the task memory (MaxRAMPercentage in the image)
   container_ports    = [8080]
-  environment = {
+  environment = merge({
     DB_URL                        = "jdbc:postgresql://${module.rds.address}:${module.rds.port}/${module.rds.db_name}?sslmode=require"
     KAFKA_BOOTSTRAP_SERVERS       = module.kafka.bootstrap_servers
     INVESTIGATION_WORKER_BASE_URL = "http://investigation-worker.${local.namespace_name}:8000"
     MANAGEMENT_PORT               = "8081"
     SPRING_PROFILES_ACTIVE        = var.spring_profiles_active
     TRACING_EXPORT_ENABLED        = "false"
-  }
+  }, local.incident_service_redis_environment)
   secrets = {
     DB_USERNAME        = "${local.db_secret}:username::"
     DB_PASSWORD        = "${local.db_secret}:password::"

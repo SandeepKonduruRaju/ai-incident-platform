@@ -79,7 +79,12 @@ Approximate on-demand list prices for eu-west-2 in 2026; they change and differ 
 | Public IPv4 addresses (ALB ×2 + 3 tasks without NAT) | ≈ $0.6 / day | ≈ $0.3 / day |
 | NAT gateway (hours + a little data) | — | ≈ $1.3 / day |
 | Secrets Manager (4 secrets), ECR storage, logs, Cloud Map, S3 state | < $0.2 / day | < $0.2 / day |
+| *Optional* ElastiCache Valkey cache.t4g.micro (`enable_redis = true`, default **off**) | + ≈ $0.3 / day | + ≈ $0.3 / day |
 | **Total (rough)** | **≈ $4 / day (≈ $115 / month)** | **≈ $5 / day (≈ $145 / month)** |
+
+Redis is off by default because the demo does not need it: incident-service then runs with the investigation cache and
+the per-tenant rate limit switched off (the same fail-open path as "Redis down"). Turn it on to demo those features; the
+node costs about as much as the RDS instance.
 
 **A few hours of demo ≈ $1–2.** Left running, the $5 budget is exceeded within about a day and a half: the budget only
 **alerts**, it does not stop anything. Destroying is the cost control.

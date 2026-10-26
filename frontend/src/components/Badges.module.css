@@ -1,0 +1,22 @@
+.badge {
+  display: inline-block;
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  border: 1px solid transparent;
+}
+
+/* Severity: colour AND text (never colour alone). */
+.severity_LOW { background: #e6f4ea; color: #1e5e2f; }
+.severity_MEDIUM { background: #fff4d6; color: #6b4b00; }
+.severity_HIGH { background: #ffe4cc; color: #7a3300; }
+.severity_CRITICAL { background: #fbd5d5; color: #8a1414; }
+
+.status { background: transparent; border-color: var(--border); color: var(--text); }
+.status_OPEN, .status_PENDING { border-color: #8aa4e8; }
+.status_INVESTIGATING, .status_RUNNING { border-color: #d9a400; }
+.status_MITIGATED, .status_COMPLETED { border-color: #3c9a5f; }
+.status_RESOLVED { border-color: var(--muted); color: var(--muted); }
+.status_FAILED { border-color: #c03030; color: var(--danger); }

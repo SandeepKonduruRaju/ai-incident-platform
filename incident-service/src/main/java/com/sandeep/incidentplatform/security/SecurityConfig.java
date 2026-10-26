@@ -1,5 +1,6 @@
 package com.sandeep.incidentplatform.security;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.security.autoconfigure.actuate.web.servlet.EndpointRequest;
 import org.springframework.core.annotation.Order;
@@ -20,6 +21,12 @@ import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+
+import java.time.Duration;
+import java.util.List;
 
 /**
  * The service is an OAuth2 resource server: it does not log users in, it only validates the
@@ -51,10 +58,22 @@ public class SecurityConfig {
 
     @Bean
     @Order(2)
-    SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    SecurityFilterChain securityFilterChain(HttpSecurity http,
+                                            @Value("${app.cors.allowed-origins:}") List<String> corsOrigins)
+            throws Exception {
+        boolean corsEnabled = corsOrigins.stream().anyMatch(origin -> !origin.isBlank());
         http
                 // Stateless API authenticated by a bearer token, not a cookie, so CSRF does not apply.
                 .csrf(AbstractHttpConfigurer::disable)
+                // CORS (milestone 4B) only when an origin is configured (corsConfigurationSource below). Otherwise
+                // it stays OFF, exactly as before: same-origin calls through a proxy (whose Host header may differ
+                // from the browser's Origin) are never mistaken for cross-origin ones, and browsers still block
+                // real cross-origin calls because no Access-Control-Allow-Origin header is ever sent.
+                .cors(cors -> {
+                    if (!corsEnabled) {
+                        cors.disable();
+                    }
+                })
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 // Authorization rules in one place (first match wins). No token -> 401; wrong role -> 403.
                 .authorizeHttpRequests(auth -> auth
@@ -71,6 +90,28 @@ public class SecurityConfig {
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2.jwt(jwt -> jwt.jwtAuthenticationConverter(rolesConverter())));
         return http.build();
+    }
+
+    /**
+     * CORS (milestone 4B, web UI). The UI is normally served from the SAME origin as the API (nginx proxies /api in
+     * compose/k8s; the Vite dev server proxies /api too), so no cross-origin call happens and this list stays EMPTY
+     * (CORS processing off, see the API chain). Only when the UI runs on its own origin against the API directly (e.g.
+     * http://localhost:5173 -> http://localhost:8080) is that one origin listed, via CORS_ALLOWED_ORIGINS.
+     * Bearer tokens only, no cookies: allowCredentials stays false.
+     */
+    @Bean
+    CorsConfigurationSource corsConfigurationSource(
+            @Value("${app.cors.allowed-origins:}") List<String> allowedOrigins) {
+        CorsConfiguration config = new CorsConfiguration();
+        config.setAllowedOrigins(allowedOrigins.stream().filter(origin -> !origin.isBlank()).toList());
+        config.setAllowedMethods(List.of("GET", "POST", "PATCH"));
+        config.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Request-Id"));
+        // Readable by the UI: the request id (shown on errors) and Retry-After (polling and 429/503 back-off).
+        config.setExposedHeaders(List.of("X-Request-Id", "Retry-After"));
+        config.setMaxAge(Duration.ofHours(1));
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/api/**", config);
+        return source;
     }
 
     // Maps the JWT "roles" claim (e.g. ["VIEWER"]) to authorities (ROLE_VIEWER).

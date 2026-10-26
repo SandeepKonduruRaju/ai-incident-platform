@@ -58,6 +58,25 @@ spec:
         - port: 9092
           protocol: TCP
 ---
+# Redis (milestone 4): only pods labelled as Redis clients, i.e. incident-service. The worker never uses it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              access.incident-platform/redis: "true"
+      ports:
+        - port: 6379
+          protocol: TCP
+---
 # The public API (8080): only from the ingress controller. The management port (8081) gets no rule, so
 # nothing can reach it until a Prometheus is deployed and allowed here.
 apiVersion: networking.k8s.io/v1
@@ -68,6 +87,25 @@ spec:
   podSelector:
     matchLabels:
       app.kubernetes.io/name: incident-service
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - port: 8080
+          protocol: TCP
+---
+# The web UI (milestone 4B): only from the ingress controller, like the public API.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: frontend-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: frontend
   policyTypes: ["Ingress"]
   ingress:
     - from:

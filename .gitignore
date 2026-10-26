@@ -15,3 +15,7 @@ k8s/.secrets/
 !*.tfvars.example
 infra/**/backend.hcl
 crash.log
+# Load-test outputs (milestone 4): raw k6/Prometheus/docker-stats files; the summary is in docs/load-test.md.
+loadtest/results/
+# graphify knowledge graph (local, rebuilt with `graphify update .`)
+graphify-out/

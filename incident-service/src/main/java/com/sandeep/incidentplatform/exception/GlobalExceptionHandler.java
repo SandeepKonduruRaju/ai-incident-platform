@@ -87,6 +87,18 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 .body(problem);
     }
 
+    // 429: the tenant created too many incidents this minute (RateLimitInterceptor, Redis fixed window).
+    // Retry-After = seconds until the window resets, so a well-behaved client knows exactly when to retry.
+    @ExceptionHandler(RateLimitExceededException.class)
+    public ResponseEntity<ProblemDetail> handleRateLimited(RateLimitExceededException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.TOO_MANY_REQUESTS, ex.getMessage());
+        problem.setTitle("Too many requests");
+        problem.setProperty("limitPerMinute", ex.limit());
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(ex.retryAfterSeconds()))
+                .body(problem);
+    }
+
     // 500: anything unexpected. Log the details server-side; never leak them to the client.
     @ExceptionHandler(Exception.class)
     public ProblemDetail handleUnexpected(Exception ex) {

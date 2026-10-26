@@ -10,6 +10,13 @@ on:
     branches: ["**"]
   pull_request:
     branches: [main]
+  # Manual run: also runs the optional Playwright e2e smoke test against a compose stack (milestone 4B).
+  workflow_dispatch:
+    inputs:
+      e2e:
+        description: "Run the Playwright e2e smoke test (starts the compose stack, ~10 min)"
+        type: boolean
+        default: false
 
 # A newer push to the same branch/PR cancels the run in progress.
 concurrency:
@@ -32,6 +39,7 @@ jobs:
       python: ${{ steps.filter.outputs.python }}
       k8s: ${{ steps.filter.outputs.k8s }}
       infra: ${{ steps.filter.outputs.infra }}
+      frontend: ${{ steps.filter.outputs.frontend }}
     steps:
       - uses: actions/checkout@v7
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
@@ -51,6 +59,9 @@ jobs:
               - '.github/workflows/ci.yml'
             infra:
               - 'infra/**'
+              - '.github/workflows/ci.yml'
+            frontend:
+              - 'frontend/**'
               - '.github/workflows/ci.yml'
 
   k8s:
@@ -187,6 +198,7 @@ jobs:
           --title "incident-service tests"
           --require-passed IncidentApiIntegrationTest
           --require-passed OutboxKafkaIntegrationTest
+          --require-passed RedisIntegrationTest
 
       - name: Upload surefire reports
         if: failure()
@@ -252,6 +264,7 @@ jobs:
           --require-passed tests.test_consumer_integration
           --require-passed tests.test_investigation_integration
           --require-passed tests.test_eval_smoke
+          --require-passed tests.test_reaper
 
       - name: Upload JUnit XML
         if: ${{ !cancelled() }}
@@ -261,14 +274,90 @@ jobs:
           path: investigation-worker/test-results/
           retention-days: 14
 
+  frontend:
+    name: frontend (React)
+    needs: changes
+    if: github.event_name == 'pull_request' || needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24.15.0"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies (lockfile only)
+        run: npm ci --no-audit --no-fund
+
+      - name: Lint (eslint)
+        run: npm run lint
+
+      - name: Typecheck (tsc)
+        run: npm run typecheck
+
+      - name: Unit and component tests (Vitest + Testing Library)
+        run: npm test
+
+      - name: Production build
+        run: npm run build
+
+  # Optional (manual run with e2e=true): the real stack in compose, then login -> create -> COMPLETED in Chromium.
+  frontend-e2e:
+    name: frontend e2e (Playwright, optional)
+    if: github.event_name == 'workflow_dispatch' && inputs.e2e
+    needs: frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24.15.0"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Start the stack (fake LLM, dev profile, UI on :3001)
+        working-directory: incident-service
+        env:
+          LLM_PROVIDER: fake
+        run: docker compose up -d --build --wait --wait-timeout 900 incident-service ui
+
+      - name: Install Playwright (Chromium)
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund && npx playwright install --with-deps chromium
+
+      - name: E2E smoke test
+        working-directory: frontend
+        run: npm run e2e
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 14
+
+      - name: Stack logs on failure
+        if: failure()
+        working-directory: incident-service
+        run: docker compose logs --tail 200 incident-service investigation-worker ui
+
   docker:
     name: image (${{ matrix.image }})
-    needs: [changes, java, python]
+    needs: [changes, java, python, frontend]
     # After the test jobs: none failed, and at least one of them ran (a job skipped by the path filter is fine).
-    # Both images are built every time: unchanged ones are pure cache hits, and main gets a full set of tags.
+    # All images are built every time: unchanged ones are pure cache hits, and main gets a full set of tags.
     if: >-
       ${{ !cancelled() && !contains(needs.*.result, 'failure')
-      && (needs.java.result == 'success' || needs.python.result == 'success') }}
+      && (needs.java.result == 'success' || needs.python.result == 'success' || needs.frontend.result == 'success') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -277,7 +366,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image: [incident-service, investigation-worker]
+        image: [incident-service, investigation-worker, frontend]
     env:
       PUSH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     steps:
@@ -378,7 +467,7 @@ jobs:
   gitops-bump:
     name: GitOps image bump PR
     needs: docker
-    # Only after BOTH images of this commit were pushed to GHCR (push to main); never for pull requests.
+    # Only after ALL images of this commit were pushed to GHCR (push to main); never for pull requests.
     # No loop: merging the bump PR changes only k8s/overlays/gitops, so the java/python jobs are skipped by the
     # path filter, the image job (which needs one of them) is skipped, and so is this job. The commit-message
     # check is a second guard.
@@ -413,7 +502,7 @@ jobs:
           commit-message: "deploy(gitops): images ${{ github.sha }}"
           title: "deploy(gitops): images ${{ github.sha }}"
           body: |
-            Deploys `ghcr.io/${{ github.repository_owner }}/incident-service` and `.../investigation-worker` at
+            Deploys `ghcr.io/${{ github.repository_owner }}/incident-service`, `.../investigation-worker` and `.../frontend` at
             `${{ github.sha }}` (built, scanned and pushed by CI run ${{ github.run_id }}).
 
             **Merging this PR deploys it**: Argo CD syncs `k8s/overlays/gitops` from main.

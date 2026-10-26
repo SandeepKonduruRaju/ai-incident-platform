@@ -119,6 +119,22 @@ services:
     command: ["python", "-m", "app.ingest"]
     restart: "no"
 
+  # Milestone 4: cache of finished investigations + per-tenant rate limit for incident-service.
+  # OPTIONAL by design: incident-service fails open without it ("docker compose stop redis" to see it).
+  # Pure cache: no persistence (--save "" --appendonly no), bounded memory, LRU eviction. Published on
+  # 127.0.0.1 only, for running incident-service with mvnw on the host.
+  redis:
+    image: redis:8.8.3-alpine
+    container_name: incidents-redis
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "64mb", "--maxmemory-policy", "allkeys-lru"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   # The Java API, built from ./Dockerfile. "docker compose up -d --build" now starts the whole stack.
   # To run it with .\mvnw.cmd spring-boot:run instead: "docker compose stop incident-service" first (it
   # uses port 8080), or publish this container elsewhere with $env:INCIDENT_SERVICE_PORT = "8081".
@@ -136,6 +152,8 @@ services:
         condition: service_completed_successfully   # topics exist before the outbox relay sends
       investigation-worker:
         condition: service_healthy
+      redis:
+        condition: service_started   # start order only: incident-service works without Redis
     environment:
       # Inside the compose network: service names and the INTERNAL Kafka listener, not localhost.
       DB_URL: jdbc:postgresql://postgres:5432/incident_platform
@@ -143,6 +161,11 @@ services:
       DB_PASSWORD: localpass   # local container only (same as POSTGRES_PASSWORD above)
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       INVESTIGATION_WORKER_BASE_URL: http://investigation-worker:8000
+      # Milestone 4: Redis cache + rate limit (switches and limit overridable from the host, e.g. for load tests).
+      REDIS_HOST: redis
+      REDIS_CACHE_ENABLED: ${REDIS_CACHE_ENABLED:-true}
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+      RATE_LIMIT_CREATE_INCIDENT_PER_MINUTE: ${RATE_LIMIT_CREATE_INCIDENT_PER_MINUTE:-30}
       # DEV-ONLY defaults (local stack only), overridable from the host environment or incident-service/.env.
       JWT_SECRET: ${JWT_SECRET:-dev-only-jwt-secret-change-me-0123456789abcdef}
       INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-dev-only-internal-token-change-me}
@@ -156,6 +179,20 @@ services:
     ports:
       - "${INCIDENT_SERVICE_PORT:-8080}:8080"
     # The image's HEALTHCHECK (curl /api/v1/health) is used as is.
+
+  # Milestone 4B: the web UI. nginx (non-root) serves the built React app and proxies /api to incident-service,
+  # so the browser talks to ONE origin (no CORS). Open http://localhost:3001 (Grafana already uses 3000).
+  ui:
+    build:
+      context: ../frontend
+    image: incident-platform-ui:local
+    container_name: incident-platform-ui
+    depends_on:
+      - incident-service
+    environment:
+      API_UPSTREAM: incident-service:8080
+    ports:
+      - "${UI_PORT:-3001}:8080"
 
   # ---------------------------------------------------------------- observability profile (section 3.4)
   # Off by default so the normal stack stays light. Start with:
@@ -194,8 +231,44 @@ services:
       - ../observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ../observability/prometheus/rules:/etc/prometheus/rules:ro
       - prometheus-data:/prometheus
+    depends_on:
+      - alertmanager
     ports:
       - "9090:9090"
+
+  # Milestone 4: routes Prometheus alerts. Always to the local webhook-echo below; also to Slack and/or
+  # email when their settings are in the HOST environment (never in this file):
+  #   ALERT_SLACK_WEBHOOK_URL [ALERT_SLACK_CHANNEL]
+  #   ALERT_EMAIL_TO ALERT_SMTP_SMARTHOST [ALERT_EMAIL_FROM ALERT_SMTP_USERNAME ALERT_SMTP_PASSWORD]
+  # The config is generated at start by observability/alertmanager/entrypoint.sh. UI: http://localhost:9093
+  alertmanager:
+    profiles: ["observability"]
+    image: prom/alertmanager:v0.34.1
+    container_name: alertmanager
+    entrypoint: ["/bin/sh", "/etc/alertmanager/entrypoint.sh"]
+    environment:
+      ALERT_SLACK_WEBHOOK_URL: ${ALERT_SLACK_WEBHOOK_URL:-}
+      ALERT_SLACK_CHANNEL: ${ALERT_SLACK_CHANNEL:-}
+      ALERT_EMAIL_TO: ${ALERT_EMAIL_TO:-}
+      ALERT_EMAIL_FROM: ${ALERT_EMAIL_FROM:-}
+      ALERT_SMTP_SMARTHOST: ${ALERT_SMTP_SMARTHOST:-}
+      ALERT_SMTP_USERNAME: ${ALERT_SMTP_USERNAME:-}
+      ALERT_SMTP_PASSWORD: ${ALERT_SMTP_PASSWORD:-}
+    volumes:
+      - ../observability/alertmanager/entrypoint.sh:/etc/alertmanager/entrypoint.sh:ro
+    depends_on:
+      - alert-webhook-echo
+    ports:
+      - "127.0.0.1:9093:9093"
+
+  # Stand-in for Slack/PagerDuty: prints every alert notification. Watch: docker logs -f alert-webhook-echo
+  alert-webhook-echo:
+    profiles: ["observability"]
+    image: python:3.13.16-slim-trixie   # same base as the worker image: nothing extra to pull
+    container_name: alert-webhook-echo
+    command: ["python", "/app/webhook_echo.py"]
+    volumes:
+      - ../observability/alertmanager/webhook_echo.py:/app/webhook_echo.py:ro
 
   grafana:
     profiles: ["observability"]
