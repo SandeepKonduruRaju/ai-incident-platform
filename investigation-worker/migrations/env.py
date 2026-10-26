@@ -28,6 +28,11 @@ def database_url() -> str:
 
 
 def run_migrations(connection: Connection) -> None:
+    # Several processes may migrate at once (3 worker pods starting together on Kubernetes). Without a lock
+    # they all see an empty database, all run CREATE ..., and all but one fail. A transaction-scoped advisory
+    # lock makes them queue: the first migrates, the others then find the schema at head and do nothing.
+    # Released automatically at commit (or if the process dies). The key is an arbitrary constant.
+    connection.execute(text("SELECT pg_advisory_xact_lock(2026101501)"))
     # The schema must exist before Alembic can create its version table inside it.
     connection.execute(text(f"CREATE SCHEMA IF NOT EXISTS {SCHEMA}"))
     context.configure(

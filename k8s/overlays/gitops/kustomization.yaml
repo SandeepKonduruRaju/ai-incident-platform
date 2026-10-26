@@ -1,0 +1,103 @@
+# GitOps overlay (section 3.7): what Argo CD deploys from the main branch (k8s/argocd/application.yaml).
+# Same as the local overlay (dev profile, fake LLM), but:
+#   - images come from GHCR, tagged with the full git SHA of the commit CI built them from. CI opens a pull
+#     request that bumps the two newTag lines below; merging it = deploying (Argo CD syncs main).
+#   - Argo CD sync waves bring the dependencies up in order: Postgres + Kafka -> topics Job -> ingest Job
+#     (which runs the migrations first) -> the two Deployments -> Ingress, HPA, PDB.
+#   - the Jobs are adapted to GitOps: kept after completion (a TTL-deleted Job would look like drift) and
+#     replaced when their spec changes (Job specs are immutable).
+#   - the worker-ingest Job has its OWN image tag (investigation-worker-ingest) and a synthetic-data hash, both
+#     moved by scripts/gitops-bump.py only when investigation-worker/data/synthetic changes: an app release no
+#     longer re-runs the 10-20 minute ingest. (The kafka-topics Job uses the fixed Kafka image: never re-runs.)
+# Do not apply this overlay and k8s/overlays/local to the same cluster at the same time.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../local
+
+images:
+  - name: incident-service
+    newName: ghcr.io/sandeepkondururaju/incident-service
+    newTag: 22a9501305f7e272592a4ad1dfe92305449a1134
+  - name: investigation-worker
+    newName: ghcr.io/sandeepkondururaju/investigation-worker
+    newTag: 22a9501305f7e272592a4ad1dfe92305449a1134
+  # The worker-ingest Job: same image, but only bumped when the synthetic data changes (see the header).
+  - name: investigation-worker-ingest
+    newName: ghcr.io/sandeepkondururaju/investigation-worker
+    newTag: 22a9501305f7e272592a4ad1dfe92305449a1134
+
+patches:
+  # ---------------------------------------------------------------- sync waves (lower first; Argo CD waits until
+  # every resource of a wave is healthy: StatefulSets ready, Jobs complete, Deployments rolled out)
+  - target:
+      kind: StatefulSet
+    patch: |-
+      apiVersion: apps/v1
+      kind: StatefulSet
+      metadata:
+        name: any
+        annotations:
+          argocd.argoproj.io/sync-wave: "1"
+  - target:
+      kind: Job
+      name: kafka-topics
+    patch: |-
+      apiVersion: batch/v1
+      kind: Job
+      metadata:
+        name: kafka-topics
+        annotations:
+          argocd.argoproj.io/sync-wave: "2"
+          argocd.argoproj.io/sync-options: Force=true,Replace=true
+  - target:
+      kind: Job
+      name: worker-ingest
+    patch: |-
+      apiVersion: batch/v1
+      kind: Job
+      metadata:
+        name: worker-ingest
+        annotations:
+          argocd.argoproj.io/sync-wave: "3"
+          argocd.argoproj.io/sync-options: Force=true,Replace=true
+      spec:
+        template:
+          metadata:
+            annotations:
+              # Hash of investigation-worker/data/synthetic (git ls-tree); maintained by scripts/gitops-bump.py.
+              incident-platform/synthetic-data-sha256: "b8c2b44d8a5a3b9a"
+  - target:
+      kind: Job
+      name: worker-ingest
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/initContainers/0/image
+        value: investigation-worker-ingest
+      - op: replace
+        path: /spec/template/spec/containers/0/image
+        value: investigation-worker-ingest
+  - target:
+      kind: Job
+    patch: |-
+      - op: remove
+        path: /spec/ttlSecondsAfterFinished
+  - target:
+      kind: Deployment
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: any
+        annotations:
+          argocd.argoproj.io/sync-wave: "4"
+  - target:
+      kind: (Ingress|HorizontalPodAutoscaler|PodDisruptionBudget)
+    patch: |-
+      apiVersion: v1
+      kind: Any
+      metadata:
+        name: any
+        annotations:
+          argocd.argoproj.io/sync-wave: "5"

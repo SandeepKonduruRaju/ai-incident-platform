@@ -1,5 +1,6 @@
 from functools import lru_cache
 from typing import Literal
+from urllib.parse import quote
 
 from pydantic import SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -30,7 +31,16 @@ class Settings(BaseSettings):
     consumer_enabled: bool = True
 
     # --- Database --- (no default on purpose: it contains a password, so the app fails fast without it)
-    database_url: str
+    # Either DATABASE_URL, or its parts below (section 3.6, ECS on AWS): there the password is injected on its
+    # own from the RDS-managed Secrets Manager secret (rotated by AWS, may contain characters such as # : %),
+    # so the URL is assembled here with the password URL-encoded.
+    database_url: str | None = None
+    db_host: str | None = None
+    db_port: int = 5432
+    db_name: str | None = None
+    db_username: str | None = None
+    db_password: SecretStr | None = None
+    db_ssl: str | None = None  # e.g. "require": RDS enforces TLS (rds.force_ssl)
 
     # --- Retries for transient errors (exponential backoff with full jitter) ---
     retry_max_attempts: int = 5
@@ -106,6 +116,18 @@ class Settings(BaseSettings):
     def _blank_secret_is_no_secret(cls, value: object) -> object:
         # compose passes VAR="" when the host has none: treat that as "not set".
         return None if isinstance(value, str) and not value.strip() else value
+
+    @model_validator(mode="after")
+    def _database_url_from_parts(self) -> "Settings":
+        if self.database_url:
+            return self
+        parts = (self.db_host, self.db_name, self.db_username, self.db_password)
+        if not all(parts):
+            raise ValueError("DATABASE_URL (or DB_HOST, DB_NAME, DB_USERNAME and DB_PASSWORD) must be set")
+        password = quote(self.db_password.get_secret_value(), safe="")
+        url = f"postgresql+asyncpg://{quote(self.db_username, safe='')}:{password}@{self.db_host}:{self.db_port}/{self.db_name}"
+        self.database_url = url + (f"?ssl={self.db_ssl}" if self.db_ssl else "")
+        return self
 
     @model_validator(mode="after")
     def _time_budget_fits_poll_interval(self) -> "Settings":

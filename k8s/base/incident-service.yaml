@@ -1,0 +1,158 @@
+# incident-service: the public REST API (behind the Ingress) + transactional outbox relay.
+apiVersion: v1
+kind: Service
+metadata:
+  name: incident-service
+  labels:
+    app.kubernetes.io/name: incident-service
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: incident-service
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+    # Actuator (health, prometheus) for in-cluster scraping; not routed by the Ingress.
+    - name: management
+      port: 8081
+      targetPort: management
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: incident-service
+  labels:
+    app.kubernetes.io/name: incident-service
+spec:
+  replicas: 2   # the HPA below owns the count from here (2-5)
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: incident-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0   # never below the current capacity during a rollout
+      maxSurge: 1         # start one new pod, wait until it is Ready, then stop one old pod
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: incident-service
+        access.incident-platform/postgres: "true"
+        access.incident-platform/kafka: "true"
+    spec:
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 45
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001      # "app" user of the image (uid 10001, gid 999)
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: incident-service
+      containers:
+        - name: incident-service
+          image: incident-service
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: management
+              containerPort: 8081
+          envFrom:
+            - configMapRef:
+                name: incident-service-config
+            - secretRef:
+                name: incident-service-secrets
+          # JAVA_TOOL_OPTIONS from the image: -XX:MaxRAMPercentage=75 sizes the heap from the memory limit below
+          # (75% of 768 Mi = 576 Mi heap), and -XX:+ExitOnOutOfMemoryError lets Kubernetes restart a broken JVM.
+          #
+          # Probes use Spring Boot's availability groups on the management port (section 3.4 enabled them):
+          # liveness = the application context is up; readiness = it accepts traffic (false while starting
+          # and during graceful shutdown).
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: management
+            periodSeconds: 5
+            failureThreshold: 48   # up to 4 min: Flyway + Spring start took 40-110 s on this laptop
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: management
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: management
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          lifecycle:
+            # Keep serving for a few seconds after the pod is marked for deletion, while the endpoint removal
+            # reaches ingress-nginx; then Spring shuts down gracefully (in-flight requests finish).
+            preStop:
+              sleep:
+                seconds: 10
+          resources:
+            # Measured with kubectl top on kind: 290-320 Mi per pod after startup.
+            requests:
+              cpu: 250m       # the HPA's 70% target is relative to this
+              memory: 384Mi
+            limits:
+              cpu: "1"
+              memory: 768Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true   # Tomcat and the JVM write only to /tmp
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: incident-service
+spec:
+  minAvailable: 1   # a node drain never takes the API down completely
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: incident-service
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: incident-service
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: incident-service
+  minReplicas: 2
+  maxReplicas: 5
+  behavior:
+    scaleUp:
+      # JVM startup burns CPU for a minute or two: only scale up on load that lasts longer than that.
+      stabilizationWindowSeconds: 120
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

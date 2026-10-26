@@ -1,0 +1,18 @@
+# Only the public API is routed: http://localhost/api/... -> incident-service:8080.
+# The worker's internal API, the actuator port, Postgres and Kafka are not reachable from outside.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: incident-platform
+spec:
+  ingressClassName: nginx
+  rules:
+    - http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: incident-service
+                port:
+                  name: http

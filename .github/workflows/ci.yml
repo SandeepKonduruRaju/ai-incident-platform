@@ -30,6 +30,8 @@ jobs:
     outputs:
       java: ${{ steps.filter.outputs.java }}
       python: ${{ steps.filter.outputs.python }}
+      k8s: ${{ steps.filter.outputs.k8s }}
+      infra: ${{ steps.filter.outputs.infra }}
     steps:
       - uses: actions/checkout@v7
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
@@ -44,6 +46,112 @@ jobs:
               - 'investigation-worker/**'
               - '.github/workflows/ci.yml'
               - '.github/scripts/**'
+            k8s:
+              - 'k8s/**'
+              - '.github/workflows/ci.yml'
+            infra:
+              - 'infra/**'
+              - '.github/workflows/ci.yml'
+
+  k8s:
+    name: Kubernetes manifests
+    needs: changes
+    if: github.event_name == 'pull_request' || needs.changes.outputs.k8s == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      KUBECONFORM_VERSION: v0.8.0
+      # sha256 of kubeconform-linux-amd64.tar.gz from the release's CHECKSUMS file
+      KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
+      KUBERNETES_VERSION: 1.37.0   # the kind node image in k8s/kind-config.yaml
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install kubeconform (checksum verified)
+        run: |
+          curl -fsSL -o /tmp/kubeconform.tar.gz             "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          echo "${KUBECONFORM_SHA256}  /tmp/kubeconform.tar.gz" | sha256sum --check
+          tar -xzf /tmp/kubeconform.tar.gz -C /tmp kubeconform
+
+      # Renders the overlay without a cluster (kubectl's built-in kustomize) and validates every resource
+      # against the Kubernetes JSON schemas: unknown fields, wrong types and missing required fields fail.
+      - name: Render and validate the overlays (local, gitops) and the Argo CD objects
+        run: |
+          for overlay in local gitops; do
+            kubectl kustomize "k8s/overlays/$overlay" > "/tmp/$overlay.yaml"
+            /tmp/kubeconform -strict -summary -kubernetes-version "${KUBERNETES_VERSION}" "/tmp/$overlay.yaml"
+            {
+              echo "### Kubernetes manifests (k8s/overlays/$overlay)"
+              echo
+              grep '^kind:' "/tmp/$overlay.yaml" | sort | uniq -c | awk '{print "- " $2 ": " $1}'
+            } >> "$GITHUB_STEP_SUMMARY"
+          done
+          # Application / AppProject are CRDs: their schemas come from the community CRD catalog.
+          /tmp/kubeconform -strict -summary -kubernetes-version "${KUBERNETES_VERSION}" -schema-location default \
+            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+            k8s/argocd/
+
+  terraform:
+    name: Terraform (infra)
+    needs: changes
+    if: github.event_name == 'pull_request' || needs.changes.outputs.infra == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Static checks only: no backend, no AWS credentials, nothing is planned or applied.
+    env:
+      TF_IN_AUTOMATION: "true"
+      TFLINT_IMAGE: ghcr.io/terraform-linters/tflint:v0.64.0
+      TRIVY_IMAGE: aquasec/trivy:0.76.0
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.16.6
+          terraform_wrapper: false
+
+      - name: terraform fmt
+        run: terraform fmt -check -recursive -diff infra
+
+      - name: terraform init (no backend) + validate
+        run: |
+          for root in infra/bootstrap infra/envs/demo; do
+            echo "::group::$root"
+            terraform -chdir="$root" init -backend=false -input=false -lockfile=readonly
+            terraform -chdir="$root" validate
+            echo "::endgroup::"
+          done
+
+      - name: tflint (with the AWS ruleset)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}   # the job's own token: avoids GitHub rate limits when tflint downloads its plugin
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo/infra -e GITHUB_TOKEN --entrypoint sh "$TFLINT_IMAGE" -c '
+            tflint --init --config /repo/infra/.tflint.hcl &&
+            for root in bootstrap envs/demo; do tflint --chdir="$root" --config=/repo/infra/.tflint.hcl --format=compact || exit 1; done'
+
+      - name: Security scan report (trivy config, all severities)
+        if: ${{ !cancelled() }}
+        run: |
+          rc=0
+          docker run --rm -v "$PWD:/repo" -w /repo "$TRIVY_IMAGE" config --quiet --skip-dirs "**/.terraform" --format table --exit-code 1 infra > trivy-config.txt 2>&1 || rc=$?
+          {
+            echo "### Terraform security scan (trivy config)"
+            echo
+            if [ "$rc" -ne 0 ]; then
+              echo '<details><summary>Unaccepted findings (all severities)</summary>'; echo; echo '```'; cat trivy-config.txt; echo '```'; echo '</details>'
+            else
+              echo "No unaccepted findings."
+            fi
+            echo
+            echo "**Accepted findings** (inline \`#trivy:ignore\` with the reason):"
+            echo
+            # shellcheck disable=SC2016  # backticks inside single quotes are literal Markdown, not expansions
+            grep -rn --include='*.tf' --exclude-dir=.terraform '#trivy:ignore:' infra | sed -E 's/^([^:]+):([0-9]+):#trivy:ignore:([A-Z0-9-]+) (.*)$/- `\3` \1:\2 - \4/'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Security gate (fail on HIGH/CRITICAL not accepted inline)
+        run: docker run --rm -v "$PWD:/repo" -w /repo "$TRIVY_IMAGE" config --quiet --skip-dirs "**/.terraform" --severity HIGH,CRITICAL --exit-code 1 infra
 
   java:
     name: incident-service (Java)
@@ -241,6 +349,8 @@ jobs:
           format: table
           exit-code: "1"
           skip-setup-trivy: true
+          # Documented, time-limited exceptions only (each with its reason and an expiry date).
+          trivyignores: .trivyignore
 
       - name: Log in to GitHub Container Registry
         if: env.PUSH == 'true'
@@ -264,3 +374,47 @@ jobs:
             REVISION=${{ github.sha }}
             CREATED=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
           cache-from: type=gha,scope=${{ matrix.image }}
+
+  gitops-bump:
+    name: GitOps image bump PR
+    needs: docker
+    # Only after BOTH images of this commit were pushed to GHCR (push to main); never for pull requests.
+    # No loop: merging the bump PR changes only k8s/overlays/gitops, so the java/python jobs are skipped by the
+    # path filter, the image job (which needs one of them) is skipped, and so is this job. The commit-message
+    # check is a second guard.
+    if: >-
+      github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.docker.result == 'success'
+      && !startsWith(github.event.head_commit.message, 'deploy(gitops)')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write        # push the bump branch
+      pull-requests: write   # open/update the PR (main itself is never pushed to: branch protection)
+    steps:
+      - uses: actions/checkout@v7
+
+      # App images always move to this commit; the worker-ingest Job's image and data hash only when
+      # investigation-worker/data/synthetic changed (so a release does not re-run the ingest).
+      - name: Point k8s/overlays/gitops at ${{ github.sha }}
+        run: |
+          python3 scripts/gitops-bump.py --sha "$GITHUB_SHA"
+          git diff -- k8s/overlays/gitops/kustomization.yaml
+
+      # One rolling PR on branch gitops/image-bump: a newer push to main updates it instead of opening another.
+      # Merging it is the deployment (Argo CD syncs main). Note: PRs created with the default GITHUB_TOKEN do not
+      # trigger workflows; to get CI checks on the PR, add a fine-grained token as the optional repository secret
+      # GITOPS_PR_TOKEN (contents + pull requests: read/write on this repository only).
+      - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          token: ${{ secrets.GITOPS_PR_TOKEN || github.token }}
+          branch: gitops/image-bump
+          delete-branch: true
+          add-paths: k8s/overlays/gitops/kustomization.yaml
+          commit-message: "deploy(gitops): images ${{ github.sha }}"
+          title: "deploy(gitops): images ${{ github.sha }}"
+          body: |
+            Deploys `ghcr.io/${{ github.repository_owner }}/incident-service` and `.../investigation-worker` at
+            `${{ github.sha }}` (built, scanned and pushed by CI run ${{ github.run_id }}).
+
+            **Merging this PR deploys it**: Argo CD syncs `k8s/overlays/gitops` from main.
+            Roll back by reverting the merge commit of the previous bump.

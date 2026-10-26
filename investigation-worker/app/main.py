@@ -55,7 +55,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(title="investigation-worker", lifespan=lifespan)
 app.include_router(internal_router)  # /internal/v1/*, every route requires X-Internal-Token; /health stays public
 # Server spans for the internal API, continuing the caller's trace (traceparent from incident-service).
-FastAPIInstrumentor.instrument_app(app, excluded_urls="health")
+FastAPIInstrumentor.instrument_app(app, excluded_urls="health,livez")
+
+
+@app.get("/livez")
+def livez(request: Request, response: Response) -> dict[str, str]:
+    """Liveness (Kubernetes restarts the pod when this fails): only "is this process still useful?".
+    503 only when the consumer loop has crashed, which a restart fixes. Deliberately NOT the database,
+    Kafka or the LLM key: a restart cannot fix those, so failing liveness on them would only crash-loop
+    every replica during a dependency outage. Readiness uses /health below."""
+    consumer: IncidentEventConsumer | None = getattr(request.app.state, "consumer", None)
+    if getattr(request.app.state, "consumer_enabled", True) and consumer is not None and consumer.state == "failed":
+        response.status_code = 503
+        return {"status": "dead", "consumer": consumer.state}
+    return {"status": "alive"}
 
 
 @app.get("/health")

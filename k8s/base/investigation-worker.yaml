@@ -1,0 +1,150 @@
+# investigation-worker: Kafka consumer (group "investigation-worker") + internal read API (port 8000).
+apiVersion: v1
+kind: Service
+metadata:
+  name: investigation-worker
+  labels:
+    app.kubernetes.io/name: investigation-worker
+spec:
+  # ClusterIP only and NOT in the Ingress: the internal API is for incident-service (NetworkPolicy enforces it).
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: investigation-worker
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: investigation-worker
+  labels:
+    app.kubernetes.io/name: investigation-worker
+spec:
+  # 3 = the partitions of incident-events. A consumer group gives each partition to exactly one consumer,
+  # so a 4th replica would sit idle (no partition) while still holding ~600 MB of models in memory.
+  # Scaling further means adding partitions first (they cannot be reduced later).
+  replicas: 3
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: investigation-worker
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: investigation-worker
+        access.incident-platform/postgres: "true"
+        access.incident-platform/kafka: "true"
+    spec:
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 60   # lets the consumer finish/commit the in-flight message on SIGTERM
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001      # "worker" user of the image
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: investigation-worker
+      initContainers:
+        # Migrations before the app starts (the image's CMD would run them too; here the main container starts
+        # uvicorn directly). All 3 pods run this at once: migrations/env.py takes a PostgreSQL advisory lock,
+        # so they queue; the first migrates, the others find the schema at head. Retries until Postgres is up.
+        - name: migrate
+          image: investigation-worker
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c", "until alembic upgrade head; do echo 'waiting for postgres'; sleep 3; done"]
+          envFrom:
+            - configMapRef:
+                name: worker-config
+            - secretRef:
+                name: worker-secrets
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      containers:
+        - name: worker
+          image: investigation-worker
+          imagePullPolicy: IfNotPresent
+          command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+          ports:
+            - name: http
+              containerPort: 8000
+            - name: metrics
+              containerPort: 9464
+          envFrom:
+            - configMapRef:
+                name: worker-config
+            - secretRef:
+                name: worker-secrets
+          # Loading the two ONNX models takes 10-60 s on an idle laptop, but more than 3 min while the node is busy
+          # (rollout + ingest on the same node: pods were killed mid-load at 36 x 5 s). Allowance: 72 x 5 s = 6 min.
+          # Liveness only starts after this succeeds.
+          startupProbe:
+            httpGet:
+              path: /livez
+              port: http
+            periodSeconds: 5
+            failureThreshold: 72
+          # Restart only if the consumer loop crashed. Not the DB, Kafka or the LLM key: a restart cannot fix
+          # those, so it would only crash-loop every replica during an outage of a dependency.
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          # Not ready = removed from the Service while the consumer is not running or the LLM is misconfigured
+          # (/health = 503). Visible in kubectl get pods (0/1) without restarting anything.
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          # Measured with kubectl top on kind: 400-490 Mi per pod with both models loaded, ~10m CPU idle,
+          # up to one core while embedding/reranking an incident.
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true   # models are baked read-only into /opt/models; only /tmp is written
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi

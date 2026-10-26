@@ -1,0 +1,43 @@
+# Base manifests for ai-incident-platform (section 3.5). Environment-specific values (image tags, dev
+# profile, LLM provider) come from the overlays. Secrets are NOT here: scripts/k8s-secrets.ps1 creates
+# them from the local .env files (see k8s/secrets.example.yaml for the key names).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: incident-platform
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: incident-platform
+    includeSelectors: false   # selectors stay minimal (and immutable fields stay stable)
+
+resources:
+  - namespace.yaml
+  - postgres.yaml
+  - kafka.yaml
+  - kafka-topics-job.yaml
+  - investigation-worker.yaml
+  - worker-ingest-job.yaml
+  - incident-service.yaml
+  - ingress.yaml
+  - network-policies.yaml
+
+# Non-secret settings. The generator appends a content hash to the name, so changing a value rolls the
+# Deployments that use it automatically.
+configMapGenerator:
+  - name: worker-config
+    literals:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - KAFKA_TOPIC=incident-events
+      - KAFKA_DLQ_TOPIC=incident-events.DLQ
+      - LLM_PROVIDER=fake
+      - LOG_LEVEL=INFO
+      - METRICS_PORT=9464
+      - TRACING_EXPORT_ENABLED=false
+  - name: incident-service-config
+    literals:
+      - DB_URL=jdbc:postgresql://postgres:5432/incident_platform
+      - DB_USERNAME=incident_app
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - INVESTIGATION_WORKER_BASE_URL=http://investigation-worker:8000
+      - MANAGEMENT_PORT=8081
+      - TRACING_EXPORT_ENABLED=false

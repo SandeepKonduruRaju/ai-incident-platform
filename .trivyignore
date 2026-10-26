@@ -1,0 +1,7 @@
+# Accepted vulnerabilities for the CI image gate ("Fail on fixable CRITICAL vulnerabilities").
+# Format: one ID per line, with an expiry date, e.g.   CVE-2026-00000 exp:2026-12-31
+# Every entry needs a comment with the reason (why it is not exploitable here, why it cannot be fixed yet) and an
+# expiry date: after it, Trivy reports the finding again and the build fails, forcing a re-check.
+# Prefer a real fix: e.g. the Pillow CVEs of 2026-10 are fixed by upgrading Pillow in investigation-worker/Dockerfile.
+#
+# No accepted vulnerabilities.

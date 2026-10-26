@@ -137,6 +137,124 @@ docker compose --profile observability up -d --build
   `sli:investigation_latency_under_30s:ratio_rate{5m,1h,7d}`. `InvestigationLatencySLOBreached` fires when
   the 7-day ratio drops below 0.95.
 
+## Kubernetes (local, kind)
+
+The same stack on a 3-node [kind](https://kind.sigs.k8s.io/) cluster (1 control plane + 2 workers), with Kustomize
+manifests in `k8s/` (`base` + `overlays/local`).
+
+**Prerequisites:** Docker Desktop (about 10 GB of memory), `kind` (`winget install --id Kubernetes.kind -e`) and
+`kubectl` (bundled with Docker Desktop; `kubectl -k` provides Kustomize). Stop the compose stack first.
+
+```powershell
+.\scripts\k8s-up.ps1     # cluster + ingress-nginx + metrics-server, build/load images (:<git sha>), secrets, apply, wait
+.\scripts\k8s-down.ps1   # deletes the kind cluster (and everything in it)
+```
+
+Then use the API through the ingress at http://localhost/api/... (same calls as the quickstart above, on port 80).
+
+| Manifest | What it runs |
+|---|---|
+| `postgres.yaml` | PostgreSQL 18 + pgvector StatefulSet (2 Gi PVC), `pg_isready` probes |
+| `kafka.yaml` | Kafka 4.1 KRaft single broker StatefulSet (2 Gi PVC), advertised as `kafka:9092` |
+| `kafka-topics-job.yaml` | Job: creates `incident-events` and its DLQ (3 partitions), idempotent |
+| `investigation-worker.yaml` | 3 replicas (one per partition), migrations in an initContainer, `/livez` liveness, `/health` readiness |
+| `worker-ingest-job.yaml` | Job: loads the synthetic evidence (idempotent upserts) |
+| `incident-service.yaml` | 2 replicas, rolling update with `maxUnavailable: 0`, actuator probes, PodDisruptionBudget, HPA (CPU 70%, 2–5) |
+| `ingress.yaml` | `/api` → incident-service only (the worker API, actuator, Postgres and Kafka stay internal) |
+| `network-policies.yaml` | Worker API only from incident-service; Postgres/Kafka only from labelled clients; API only from ingress-nginx |
+
+- **Security:**
+  - Every pod runs as non-root with no privilege escalation, all capabilities dropped and a seccomp profile. The
+    namespace enforces the Pod Security "restricted" standard.
+  - All root filesystems are read-only; `/tmp` and the Kafka config directory are emptyDir volumes.
+  - Secrets come from `scripts/k8s-secrets.ps1` (built from the `.env` files) and are never committed.
+    `k8s/secrets.example.yaml` shows the key names.
+- **Local-only caveats:**
+  - Postgres and Kafka run as single replicas without backups, TLS or authentication.
+  - ingress-nginx (now retired upstream) is used for local routing only.
+  - metrics-server skips kubelet certificate checks (kind's kubelet certificates are self-signed).
+  - Images are loaded into kind directly, without a registry.
+- **On AWS this maps to:**
+
+  | Local (kind) | AWS |
+  |---|---|
+  | kind cluster | EKS |
+  | Postgres StatefulSet | RDS / Aurora PostgreSQL with pgvector |
+  | Kafka StatefulSet | Amazon MSK |
+  | ingress-nginx | AWS Load Balancer Controller (ALB) or Gateway API |
+  | Script-made Secrets | AWS Secrets Manager via External Secrets |
+  | `kind load` images | ECR images pushed by CI (`ghcr.io` today) |
+
+  The app Deployments, probes, PDB, HPA and NetworkPolicies carry over unchanged in a new overlay.
+- **CI:** the "Kubernetes manifests" job renders the overlay and validates it with kubeconform (strict, Kubernetes 1.37
+  schemas), with no cluster and no secrets.
+
+## Continuous Deployment (GitOps)
+
+Deployments are **pulled**, not pushed. CI never touches the cluster; Argo CD runs inside it and keeps it equal to
+`k8s/overlays/gitops` on `main`.
+
+```mermaid
+flowchart LR
+    Dev[git push / merge to main] --> CI[GitHub Actions CI<br/>tests, lint, image build + Trivy]
+    CI -->|push :full-sha| GHCR[(GHCR<br/>incident-service, investigation-worker)]
+    CI -->|opens PR: bump newTag<br/>in k8s/overlays/gitops| PR[deploy gitops PR]
+    PR -->|review + merge = deploy| Main[(main branch)]
+    Argo[Argo CD in the cluster] -->|watches| Main
+    Argo -->|sync waves: data, Jobs, apps| K8s[kind / EKS cluster]
+    K8s -->|pull images| GHCR
+```
+
+1. **Images:** on every push to `main` that changes app code, CI builds, scans and pushes both images to GHCR,
+   tagged with the full commit SHA.
+2. **Bump PR:** the `gitops-bump` job opens (or updates) one PR, on branch `gitops/image-bump`, that changes
+   `k8s/overlays/gitops/kustomization.yaml` (via `scripts/gitops-bump.py`). Main is never pushed to directly.
+   - The two app image tags always move to the new commit.
+   - The ingest Job's image tag and its `synthetic-data-sha256` annotation move only when
+     `investigation-worker/data/synthetic` changed. A release therefore doesn't re-run the slow ingest; new data
+     does.
+3. **Deploy:** merging that PR is the deployment. Argo CD (automated sync, prune, selfHeal) applies it in sync
+   waves:
+   1. Postgres and Kafka;
+   2. the topics Job;
+   3. the ingest Job, which runs migrations;
+   4. the two Deployments;
+   5. Ingress, HPA and PDB.
+4. **Drift:** a manual `kubectl edit` is reverted by selfHeal. incident-service's replica count is excluded,
+   because the HPA owns it.
+5. **Rollback:** `git revert` the merge commit of the bad bump PR (via a PR). Argo CD syncs the previous SHA back.
+   Nothing needs to be rebuilt: ECR/GHCR still hold the old images.
+
+**Install locally:** `.\scripts\argocd-up.ps1`. It creates the cluster (`k8s-up.ps1 -SkipApps`: add-ons, namespace,
+secrets), installs Argo CD v3.5.6 and applies `k8s/argocd/`. Then:
+- **UI:** `kubectl -n argocd port-forward svc/argocd-server 8443:443`, open https://localhost:8443, user `admin`.
+- **Password:** the script prints the command that reads it from `argocd-initial-admin-secret`.
+
+Don't also run `k8s-up.ps1` without `-SkipApps` on the same cluster: both would manage the same resources.
+
+**Secrets are not in git.** `scripts/k8s-secrets.ps1` creates them before Argo CD syncs, and the AppProject forbids
+Secret resources from the repo. It's a pragmatic local trade-off: a new cluster needs the script once, and secret
+rotation is outside GitOps. Production uses Sealed Secrets (encrypted in git) or External Secrets (synced from AWS
+Secrets Manager).
+
+**On EKS:**
+- The same Application and overlay pattern, with an `overlays/eks` directory.
+- Argo CD is installed in the EKS cluster.
+- Images come from ECR instead of GHCR (the bump job targets ECR).
+- Secrets come from External Secrets Operator reading Secrets Manager.
+- An ALB Ingress replaces ingress-nginx.
+
+## AWS (Terraform)
+
+`infra/` describes an AWS deployment as code:
+- **Compute and data:** ECS Fargate, RDS PostgreSQL + pgvector, a single-broker Kafka task, a public ALB → API only.
+- **Secrets and access:** Secrets Manager, and GitHub OIDC roles trusted only for `main`.
+- **Cost guard:** a $5 budget.
+
+CI checks it without AWS credentials (fmt, validate, tflint, trivy). Deploy and destroy are manual, disabled-by-default
+workflows. See [infra/README.md](infra/README.md) for the architecture, estimated costs (≈ $4/day while running) and
+the bootstrap → deploy → destroy-the-same-day steps.
+
 ## API
 
 | Method | Path | Roles |

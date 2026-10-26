@@ -1,0 +1,7 @@
+# Copy to demo.tfvars (gitignored). No secrets belong here: they live in Secrets Manager.
+region             = "eu-west-2"
+enable_nat_gateway = false # true = private task subnets + NAT gateway (adds an hourly cost)
+certificate_arn    = null  # ACM certificate ARN for HTTPS; null = HTTP-only demo
+llm_provider       = "fake"
+
+# image_tag is passed by the deploy workflow: -var image_tag=<git sha>
