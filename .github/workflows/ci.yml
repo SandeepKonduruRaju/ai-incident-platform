@@ -349,6 +349,8 @@ jobs:
           format: table
           exit-code: "1"
           skip-setup-trivy: true
+          # Documented, time-limited exceptions only (each with its reason and an expiry date).
+          trivyignores: .trivyignore
 
       - name: Log in to GitHub Container Registry
         if: env.PUSH == 'true'
