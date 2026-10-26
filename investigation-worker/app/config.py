@@ -86,6 +86,12 @@ class Settings(BaseSettings):
     # Whole investigation (retrieval + every LLM call + retries). Must stay well below the Kafka poll
     # interval, or the broker would kick the consumer out while the investigation is still running.
     investigation_time_budget_seconds: float = 120.0
+    # Stale-run reaper (milestone 4): a RUNNING investigation older than this has no live run (the graph stops
+    # every run at the time budget), e.g. the worker was killed mid-run and its event was already committed.
+    # It is marked FAILED with a reason (re-runnable with python -m app.rerun --status FAILED).
+    stale_running_threshold_minutes: float = 10.0
+    reaper_interval_seconds: float = 60.0
+    reaper_enabled: bool = True
     evidence_max_chars: int = 1500  # per evidence chunk in the prompt
 
     # --- Evaluation (section 2.8) ---
@@ -127,6 +133,15 @@ class Settings(BaseSettings):
         password = quote(self.db_password.get_secret_value(), safe="")
         url = f"postgresql+asyncpg://{quote(self.db_username, safe='')}:{password}@{self.db_host}:{self.db_port}/{self.db_name}"
         self.database_url = url + (f"?ssl={self.db_ssl}" if self.db_ssl else "")
+        return self
+
+    @model_validator(mode="after")
+    def _stale_threshold_exceeds_time_budget(self) -> "Settings":
+        if self.stale_running_threshold_minutes * 60 <= self.investigation_time_budget_seconds:
+            raise ValueError(
+                "STALE_RUNNING_THRESHOLD_MINUTES must be longer than INVESTIGATION_TIME_BUDGET_SECONDS "
+                "(the reaper would fail runs that are still within their time budget)"
+            )
         return self
 
     @model_validator(mode="after")

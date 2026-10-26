@@ -39,6 +39,9 @@ REPAIR_ATTEMPTS = Counter("repair_attempts", "Repair prompts sent after an inval
 INSUFFICIENT_EVIDENCE = Counter("insufficient_evidence", "Investigations finished without evidence (no LLM call)")
 KAFKA_CONSUMER_LAG = Gauge("kafka_consumer_lag", "Messages behind the end of the partition", ["partition"])
 DLQ_MESSAGES = Counter("dlq_messages", "Messages sent to the dead-letter topic", ["reason"])
+STALE_INVESTIGATIONS_REAPED = Counter(
+    "stale_investigations_reaped", "RUNNING investigations marked FAILED because their run stopped making progress"
+)
 RETRIEVAL_DURATION = Histogram("retrieval_duration_seconds", "Hybrid retrieval for one incident", buckets=_SECONDS)
 RETRIEVED_CHUNKS = Histogram(
     "retrieved_chunks", "Evidence items handed to the LLM", buckets=(0, 1, 2, 3, 4, 5, 6, 8, 10, 15, 20)

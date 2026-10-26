@@ -41,6 +41,7 @@ spec:
         app.kubernetes.io/name: incident-service
         access.incident-platform/postgres: "true"
         access.incident-platform/kafka: "true"
+        access.incident-platform/redis: "true"
     spec:
       enableServiceLinks: false
       terminationGracePeriodSeconds: 45

@@ -32,7 +32,9 @@ Kafka) · Flyway · JUnit 5, MockMvc, Testcontainers.
 **investigation-worker**: Python 3.13 · FastAPI · aiokafka · SQLAlchemy async + asyncpg · Alembic ·
 pgvector · fastembed (bge-small embeddings, MiniLM cross-encoder, ONNX on CPU) · LangGraph · Anthropic
 SDK · pytest + Testcontainers.
-**Infrastructure**: PostgreSQL 18 + pgvector, Kafka 4.1 (KRaft), Docker (multi-stage, non-root images on
+**frontend**: React 19 · TypeScript · Vite · CSS Modules · Vitest + Testing Library · Playwright · nginx
+(non-root).
+**Infrastructure**: PostgreSQL 18 + pgvector, Redis 8 (cache + rate limit), Kafka 4.1 (KRaft), Docker (multi-stage, non-root images on
 ghcr.io), Docker Compose, GitHub Actions (tests, ruff, Trivy image scan).
 
 ## Key design decisions
@@ -255,6 +257,44 @@ CI checks it without AWS credentials (fmt, validate, tflint, trivy). Deploy and 
 workflows. See [infra/README.md](infra/README.md) for the architecture, estimated costs (≈ $4/day while running) and
 the bootstrap → deploy → destroy-the-same-day steps.
 
+## Frontend
+
+A small React + TypeScript UI in [frontend/](frontend/) (milestone 4B): sign in (dev token), list incidents (paginated,
+newest first, severity/status badges), create one (client-side validation with the API's rules, 400 field errors and
+the 429 rate-limit message shown inline), and watch its AI investigation arrive: the page polls
+`GET /api/v1/incidents/{id}/investigation` honouring `Retry-After` until COMPLETED/FAILED, then shows the summary,
+confidence, root cause, contributing factors and remediation. Every evidence marker (`C1`, `C2`, ...) is a button that
+shows the source type, source id and snippet it cites. Errors show the API's message and the request id.
+
+<!-- Screenshots (add the PNGs under docs/screenshots/):
+![Sign in](docs/screenshots/login.png)
+![Incidents](docs/screenshots/incidents.png)
+![New incident with validation errors](docs/screenshots/new-incident-errors.png)
+![Investigation with an open citation](docs/screenshots/investigation-completed.png)
+-->
+
+| Decision | Choice and why |
+|---|---|
+| Token storage | In memory (React state) only, never localStorage: an XSS bug cannot read a persisted token later. Cost: a refresh signs you out. A real deployment would use an identity provider with an HttpOnly cookie or a BFF. |
+| Serving | nginx (non-root, pinned) serves the build and proxies `/api` to incident-service: one origin, so **no CORS** in containers. The Vite dev server proxies `/api` the same way. In Kubernetes the Ingress routes `/` to the UI and `/api` to incident-service on the same host. |
+| CORS | Off by default (`CORS_ALLOWED_ORIGINS` empty: every cross-origin request is refused). Only for a UI on another origin in development, e.g. `$env:CORS_ALLOWED_ORIGINS = "http://localhost:5173"`. |
+| API types | Hand-written from the Java DTOs ([frontend/src/api/types.ts](frontend/src/api/types.ts)): the API is small, and springdoc would add a dependency and a public spec endpoint to a Boot 4 service for little gain. |
+| Styling | CSS Modules (built into Vite) + a few CSS variables: scoped class names, light/dark, no extra dependency or UI kit. |
+| Routing | A 60-line History-API router for four routes instead of a routing library. |
+
+```powershell
+# Development (hot reload) against the API on :8080
+cd frontend; npm ci; npm run dev                      # http://localhost:5173 (proxies /api)
+npm run lint; npm run typecheck; npm test; npm run build
+
+# In compose: the stack now includes the UI
+cd incident-service; $env:LLM_PROVIDER = "fake"; docker compose up -d --build
+# -> http://localhost:3001  (sign in as any user/tenant; RESPONDER can create incidents)
+
+# E2E smoke test against the running compose stack (login -> create -> COMPLETED)
+cd frontend; npx playwright install chromium; npm run e2e
+```
+
 ## API
 
 | Method | Path | Roles |
@@ -277,13 +317,14 @@ worker's logs.
 - **Shared-secret service auth**: one static `X-Internal-Token`; no mTLS or per-service identity yet.
 - **Time-windowed evidence**: logs and metrics are searched around `createdAt`; an incident filed long
   after its symptoms gets only runbooks and past incidents.
-- **Not deployed yet**: CI tests, scans and publishes the images, but there is no cloud environment or UI yet
-  (Milestone 3).
+- **Dev-only sign-in in the UI**: the frontend uses the `dev` token endpoint; there is no identity provider yet.
 
 ## Repository layout
 
 ```
 incident-service/       Spring Boot API, Flyway migrations, outbox relay, compose.yaml (whole stack)
+frontend/               React + TypeScript UI (Vite), nginx image, Vitest + Playwright tests
+loadtest/               k6 scenarios (milestone 4), results in docs/load-test.md
 investigation-worker/   Kafka consumer, ingestion, retrieval, LangGraph investigation, internal API, eval
   data/synthetic/       generated logs, metrics, runbooks, past incidents (+ golden labels)
   data/eval/            evaluation cases

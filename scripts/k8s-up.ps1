@@ -71,13 +71,13 @@ try {
         Step "building images :$Tag"
         $created = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
         $revision = (git rev-parse HEAD).Trim()
-        foreach ($image in "incident-service", "investigation-worker") {
+        foreach ($image in "incident-service", "investigation-worker", "frontend") {
             docker build -t "${image}:$Tag" --build-arg "REVISION=$revision" --build-arg "CREATED=$created" --build-arg "VERSION=$Tag" $image
             Assert-Ok "docker build $image"
         }
     }
     Step "loading images into kind"
-    kind load docker-image "incident-service:$Tag" "investigation-worker:$Tag" --name $ClusterName; Assert-Ok "kind load"
+    kind load docker-image "incident-service:$Tag" "investigation-worker:$Tag" "frontend:$Tag" --name $ClusterName; Assert-Ok "kind load"
 
     Step "image tag $Tag -> k8s/overlays/local/kustomization.yaml"
     $overlay = Join-Path $root "k8s/overlays/local/kustomization.yaml"
@@ -99,6 +99,7 @@ try {
     kubectl -n $namespace wait --for=condition=complete job/kafka-topics --timeout=300s; Assert-Ok "kafka-topics job"
     kubectl -n $namespace rollout status deployment/investigation-worker --timeout=600s; Assert-Ok "investigation-worker"
     kubectl -n $namespace rollout status deployment/incident-service --timeout=600s; Assert-Ok "incident-service"
+    kubectl -n $namespace rollout status deployment/frontend --timeout=300s; Assert-Ok "frontend"
     kubectl -n $namespace wait --for=condition=complete job/worker-ingest --timeout=600s; Assert-Ok "worker-ingest job"
 
     Step "ready"

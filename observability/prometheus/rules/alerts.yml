@@ -1,5 +1,6 @@
 # Alerts as code (Prometheus rules). Firing alerts are visible at http://localhost:9090/alerts and on the
-# Grafana dashboard. No Alertmanager in the local stack: in production these would route to on-call.
+# Grafana dashboard, and are sent to Alertmanager (milestone 4), which routes them to the local webhook-echo
+# and, when configured through environment variables, to Slack/email.
 groups:
   - name: investigation-pipeline
     rules:
@@ -56,3 +57,34 @@ groups:
           severity: warning
         annotations:
           summary: "Prometheus cannot scrape {{ $labels.job }} ({{ $labels.instance }})"
+
+  # Milestone 4.
+  - name: redis-and-reaper
+    rules:
+      - alert: RedisUnavailable
+        # incident-service fails open: reads skip the cache and incident creation is NOT rate limited.
+        expr: sum(increase(redis_errors_total[5m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "incident-service cannot reach Redis: no investigation cache and NO per-tenant rate limit"
+          description: "Check the redis container/pod. The API keeps working (fail open); the worker gets every read."
+
+      - alert: TenantRateLimited
+        # Tenants keep hitting the 429 limit: a runaway client, or a limit set too low.
+        expr: sum(increase(rate_limited_total[10m])) > 20
+        labels:
+          severity: info
+        annotations:
+          summary: "{{ $value | printf \"%.0f\" }} incident creations refused with 429 in the last 10 minutes"
+          description: "Responses carry Retry-After; if the traffic is legitimate, raise RATE_LIMIT_CREATE_INCIDENT_PER_MINUTE."
+
+      - alert: StaleInvestigationsReaped
+        # The worker died mid-run and the reaper had to fail investigations stuck in RUNNING.
+        expr: sum(increase(stale_investigations_reaped_total[30m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $value | printf \"%.0f\" }} investigation(s) stuck in RUNNING were marked FAILED by the reaper"
+          description: "Check worker restarts/OOM kills; re-run them with python -m app.rerun --status FAILED."

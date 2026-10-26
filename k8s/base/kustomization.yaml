@@ -14,10 +14,12 @@ resources:
   - namespace.yaml
   - postgres.yaml
   - kafka.yaml
+  - redis.yaml
   - kafka-topics-job.yaml
   - investigation-worker.yaml
   - worker-ingest-job.yaml
   - incident-service.yaml
+  - frontend.yaml
   - ingress.yaml
   - network-policies.yaml
 
@@ -39,5 +41,7 @@ configMapGenerator:
       - DB_USERNAME=incident_app
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
       - INVESTIGATION_WORKER_BASE_URL=http://investigation-worker:8000
+      - REDIS_HOST=redis
+      - RATE_LIMIT_CREATE_INCIDENT_PER_MINUTE=30
       - MANAGEMENT_PORT=8081
       - TRACING_EXPORT_ENABLED=false

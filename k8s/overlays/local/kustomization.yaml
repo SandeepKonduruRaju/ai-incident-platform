@@ -7,11 +7,13 @@ resources:
 
 # Images are built locally and loaded into kind (`kind load docker-image`); nothing is pulled from a registry.
 # The tag is the git short SHA of the build ("-dirty" when built from uncommitted changes). scripts/k8s-up.ps1
-# rewrites the two newTag lines below on every run; never "latest".
+# rewrites the newTag lines below on every run; never "latest".
 images:
   - name: incident-service
     newTag: 6b5470c-dirty-10201705
   - name: investigation-worker
+    newTag: 6b5470c-dirty-10201705
+  - name: frontend
     newTag: 6b5470c-dirty-10201705
 
 # Local-only settings: the dev profile enables POST /api/v1/dev/token (no identity provider here), and the

@@ -11,15 +11,17 @@ WORKDIR /app
 
 # Install dependencies first so this layer is cached until requirements.txt changes.
 COPY requirements.txt .
-# pip first: the base image's pip 26.2.1 vendors certifi 2026.06.17 (GHSA-6q48-6c7w-9gw2, CRITICAL);
-# pip 26.2.2 vendors the fixed certifi 2026.10.19.
+# pip is needed only to build this layer, so it is uninstalled at the end: the copies of certifi, urllib3,
+# msgpack and setuptools vendored inside pip were the image's only fixable CVEs (Trivy, 2026-10). pip 26.2.2 is
+# still upgraded first so the install itself runs with a patched pip.
 # Pillow 13.0.0 over fastembed's pillow<13 cap: Pillow 12.x has fixable CRITICAL CVEs (CVE-2026-112393,
 # -112403, -112900; JPEG decoder) and no fastembed release allows 13 yet. fastembed imports PIL but our text
 # embedding/reranking never decodes images; the model-download steps below import fastembed with 13.0.0, so an
 # incompatibility fails this build. Remove the override once a fastembed release allows pillow>=13.
 RUN pip install --no-cache-dir --upgrade pip==26.2.2 \
     && pip install --no-cache-dir -r requirements.txt \
-    && pip install --no-cache-dir --no-deps pillow==13.0.0
+    && pip install --no-cache-dir --no-deps pillow==13.0.0 \
+    && pip uninstall --yes pip
 
 # Run as an unprivileged user, not root.
 RUN useradd --create-home --uid 10001 worker

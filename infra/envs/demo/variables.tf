@@ -77,3 +77,9 @@ variable "log_retention_days" {
   type        = number
   default     = 7
 }
+
+variable "enable_redis" {
+  description = "Create ElastiCache (one cache.t4g.micro Valkey node, about $0.3/day = $10/month EXTRA) for incident-service's investigation cache and per-tenant rate limit. false = both features off: the API works the same, every investigation read goes to the worker and incident creation is not rate limited."
+  type        = bool
+  default     = false
+}

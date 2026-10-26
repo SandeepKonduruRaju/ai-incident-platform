@@ -3,7 +3,7 @@
 
     python scripts/gitops-bump.py --sha <40-char commit sha>
 
-- incident-service and investigation-worker: ALWAYS set to the commit SHA (every built commit is deployed).
+- incident-service, investigation-worker and frontend: ALWAYS set to the commit SHA (every built commit is deployed).
 - investigation-worker-ingest (the image of the worker-ingest Job) and the Job's synthetic-data-sha256
   annotation: changed ONLY when investigation-worker/data/synthetic changed. Argo CD re-runs the Job only when
   its spec changes, so an image bump without new data no longer triggers a 10-20 minute re-ingest. When the
@@ -22,7 +22,7 @@ from pathlib import Path
 
 DATA_DIR = "investigation-worker/data/synthetic"
 OVERLAY = Path("k8s/overlays/gitops/kustomization.yaml")
-APP_IMAGES = ("incident-service", "investigation-worker")
+APP_IMAGES = ("incident-service", "investigation-worker", "frontend")
 INGEST_IMAGE = "investigation-worker-ingest"
 HASH_KEY = "incident-platform/synthetic-data-sha256"
 _SHA = re.compile(r"[0-9a-f]{40}")
