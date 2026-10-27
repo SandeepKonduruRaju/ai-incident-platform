@@ -1,0 +1,75 @@
+.root {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.backdrop {
+  position: absolute;
+  inset: 0;
+  background: var(--scrim);
+}
+
+.sheet {
+  position: relative;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  box-shadow: var(--sheet-shadow);
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--gutter);
+  border-bottom: 1px solid var(--line);
+}
+
+.header h2 {
+  margin: 0;
+  font-size: var(--text-md);
+}
+
+.close {
+  min-height: 2.25rem;
+  padding: 0.3rem 0.8rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.body {
+  overflow-y: auto;
+  padding: var(--space-3) var(--gutter) var(--space-5);
+}
+
+/* Motion only for people who have not asked to reduce it. */
+@media (prefers-reduced-motion: no-preference) {
+  .sheet {
+    animation: rise 200ms ease-out;
+  }
+
+  .backdrop {
+    animation: fade 200ms ease-out;
+  }
+}
+
+@keyframes rise {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}

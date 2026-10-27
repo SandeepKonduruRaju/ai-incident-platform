@@ -1,22 +1,48 @@
-.badge {
-  display: inline-block;
-  padding: 0.1rem 0.55rem;
-  border-radius: 999px;
-  font-size: 0.78rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  border: 1px solid transparent;
+/* Severity: a short coloured bar plus the word, in the severity colour (contrast checked on the surface colour). */
+.severity {
+  display: inline-flex;
+  gap: 0.4rem;
+  align-items: center;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
-/* Severity: colour AND text (never colour alone). */
-.severity_LOW { background: #e6f4ea; color: #1e5e2f; }
-.severity_MEDIUM { background: #fff4d6; color: #6b4b00; }
-.severity_HIGH { background: #ffe4cc; color: #7a3300; }
-.severity_CRITICAL { background: #fbd5d5; color: #8a1414; }
+.bar {
+  width: 3px;
+  height: 0.95em;
+  border-radius: 2px;
+  background: currentColor;
+}
 
-.status { background: transparent; border-color: var(--border); color: var(--text); }
-.status_OPEN, .status_PENDING { border-color: #8aa4e8; }
-.status_INVESTIGATING, .status_RUNNING { border-color: #d9a400; }
-.status_MITIGATED, .status_COMPLETED { border-color: #3c9a5f; }
-.status_RESOLVED { border-color: var(--muted); color: var(--muted); }
-.status_FAILED { border-color: #c03030; color: var(--danger); }
+.severity_CRITICAL { color: var(--sev-critical); }
+.severity_HIGH { color: var(--sev-high); }
+.severity_MEDIUM { color: var(--sev-medium); }
+.severity_LOW { color: var(--sev-low); }
+
+/* Status: the word in ink with a small dot; finished states get a hollow dot, so shape differs too. */
+.status {
+  display: inline-flex;
+  gap: 0.4rem;
+  align-items: center;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--slate);
+  border: 2px solid var(--slate);
+}
+
+.status_OPEN .dot,
+.status_PENDING .dot { background: var(--signal); border-color: var(--signal); }
+.status_INVESTIGATING .dot,
+.status_RUNNING .dot { background: var(--sev-medium); border-color: var(--sev-medium); }
+.status_MITIGATED .dot,
+.status_COMPLETED .dot { background: var(--ok); border-color: var(--ok); }
+.status_RESOLVED .dot,
+.status_NOT_STARTED .dot { background: transparent; }
+.status_RESOLVED { color: var(--slate); }
+.status_FAILED .dot { background: var(--danger); border-color: var(--danger); border-radius: 1px; }

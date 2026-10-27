@@ -1,0 +1,40 @@
+.toggle {
+  display: inline-flex;
+  margin: 0;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-sunk);
+}
+
+.option {
+  position: relative;
+  display: inline-flex;
+}
+
+.option input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.option span {
+  padding: 0.15rem 0.55rem;
+  border-radius: calc(var(--radius) - 2px);
+  font-size: var(--text-xs);
+  color: var(--slate);
+}
+
+.option input:checked + span {
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: 0 0 0 1px var(--line);
+}
+
+.option input:focus-visible + span {
+  outline: 2px solid var(--signal);
+  outline-offset: 1px;
+}

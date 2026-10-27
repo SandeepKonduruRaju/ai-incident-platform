@@ -15,14 +15,20 @@ export class ApiError extends Error {
   readonly problem?: ProblemDetail;
   readonly requestId?: string;
   readonly retryAfterSeconds?: number;
+  readonly timedOut: boolean; // no answer within the client timeout (status 0): the server may still have done it
 
-  constructor(status: number, message: string, opts: { problem?: ProblemDetail; requestId?: string; retryAfterSeconds?: number } = {}) {
+  constructor(
+    status: number,
+    message: string,
+    opts: { problem?: ProblemDetail; requestId?: string; retryAfterSeconds?: number; timedOut?: boolean } = {},
+  ) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.problem = opts.problem;
     this.requestId = opts.requestId;
     this.retryAfterSeconds = opts.retryAfterSeconds;
+    this.timedOut = opts.timedOut ?? false;
   }
 
   /** 400 field errors keyed by field name. */
@@ -35,9 +41,15 @@ export interface ApiClient {
   issueDevToken(request: TokenRequest): Promise<TokenResponse>;
   listIncidents(page: number, size: number): Promise<Page<Incident>>;
   getIncident(id: string): Promise<Incident>;
-  createIncident(request: CreateIncidentRequest): Promise<Incident>;
+  /**
+   * idempotencyKey: sent as Idempotency-Key, so sending the same report again (e.g. after a timeout) returns the
+   * incident the first request created instead of a duplicate. Times out after CREATE_TIMEOUT_MS.
+   */
+  createIncident(request: CreateIncidentRequest, opts?: { idempotencyKey?: string }): Promise<Incident>;
   /** retryAfterSeconds: present while PENDING/RUNNING (how long to wait before polling again). */
   getInvestigation(id: string): Promise<{ investigation: Investigation; retryAfterSeconds?: number }>;
+  /** Re-requests a NOT_STARTED or FAILED investigation (409 otherwise); answers PENDING. */
+  retryInvestigation(id: string): Promise<{ investigation: Investigation; retryAfterSeconds?: number }>;
 }
 
 export interface ClientOptions {
@@ -51,6 +63,17 @@ export function parseRetryAfter(value: string | null): number | undefined {
   if (!value) return undefined;
   const seconds = Number(value);
   return Number.isFinite(seconds) && seconds >= 0 ? seconds : undefined;
+}
+
+/** POST /incidents: after this long without an answer, stop waiting and tell the user what may have happened. */
+export const CREATE_TIMEOUT_MS = 15_000;
+
+export const CREATE_TIMEOUT_MESSAGE =
+  'The server did not answer within 15 seconds. The incident may have been saved: reporting it again with the same ' +
+  'details is safe and will not create a duplicate.';
+
+export function newIdempotencyKey(): string {
+  return newRequestId();
 }
 
 function newRequestId(): string {
@@ -70,22 +93,36 @@ const FRIENDLY: Record<number, string> = {
 export function createApiClient({ baseUrl = '', getToken, onUnauthorized, fetchImpl }: ClientOptions): ApiClient {
   const doFetch = fetchImpl ?? ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init));
 
-  async function request<T>(method: string, path: string, body?: unknown): Promise<{ data: T; response: Response }> {
+  interface RequestOptions {
+    headers?: Record<string, string>;
+    timeoutMs?: number; // abort after this long: ApiError with timedOut = true
+    timeoutMessage?: string;
+  }
+
+  async function request<T>(method: string, path: string, body?: unknown, opts: RequestOptions = {}): Promise<{ data: T; response: Response }> {
     const requestId = newRequestId();
-    const headers: Record<string, string> = { Accept: 'application/json', 'X-Request-Id': requestId };
+    const headers: Record<string, string> = { Accept: 'application/json', 'X-Request-Id': requestId, ...opts.headers };
     const token = getToken();
     if (token) headers.Authorization = `Bearer ${token}`;
     if (body !== undefined) headers['Content-Type'] = 'application/json';
 
+    const controller = opts.timeoutMs ? new AbortController() : undefined;
+    const timer = controller ? setTimeout(() => controller.abort(), opts.timeoutMs) : undefined;
     let response: Response;
     try {
       response = await doFetch(`${baseUrl}${path}`, {
         method,
         headers,
         body: body === undefined ? undefined : JSON.stringify(body),
+        signal: controller?.signal,
       });
     } catch {
+      if (controller?.signal.aborted) {
+        throw new ApiError(0, opts.timeoutMessage ?? 'The server did not answer in time.', { requestId, timedOut: true });
+      }
       throw new ApiError(0, 'Cannot reach the server. Check your connection and try again.', { requestId });
+    } finally {
+      clearTimeout(timer);
     }
 
     const serverRequestId = response.headers.get('X-Request-Id') ?? requestId;
@@ -117,11 +154,22 @@ export function createApiClient({ baseUrl = '', getToken, onUnauthorized, fetchI
     async getIncident(id) {
       return (await request<Incident>('GET', `/api/v1/incidents/${encodeURIComponent(id)}`)).data;
     },
-    async createIncident(req) {
-      return (await request<Incident>('POST', '/api/v1/incidents', req)).data;
+    async createIncident(req, opts = {}) {
+      const headers = opts.idempotencyKey ? { 'Idempotency-Key': opts.idempotencyKey } : undefined;
+      return (
+        await request<Incident>('POST', '/api/v1/incidents', req, {
+          headers,
+          timeoutMs: CREATE_TIMEOUT_MS,
+          timeoutMessage: CREATE_TIMEOUT_MESSAGE,
+        })
+      ).data;
     },
     async getInvestigation(id) {
       const { data, response } = await request<Investigation>('GET', `/api/v1/incidents/${encodeURIComponent(id)}/investigation`);
+      return { investigation: data, retryAfterSeconds: parseRetryAfter(response.headers.get('Retry-After')) };
+    },
+    async retryInvestigation(id) {
+      const { data, response } = await request<Investigation>('POST', `/api/v1/incidents/${encodeURIComponent(id)}/investigation/retry`);
       return { investigation: data, retryAfterSeconds: parseRetryAfter(response.headers.get('Retry-After')) };
     },
   };

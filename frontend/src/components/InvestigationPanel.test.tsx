@@ -39,7 +39,7 @@ describe('InvestigationPanel polling', () => {
 
     await advance(3000); // Retry-After: 3 from the RUNNING answer
     expect(getInvestigation).toHaveBeenCalledTimes(3);
-    expect(screen.getByText('COMPLETED')).toBeInTheDocument();
+    expect(screen.getByText('Completed')).toBeInTheDocument();
 
     await advance(60_000);
     expect(getInvestigation).toHaveBeenCalledTimes(3); // finished: no more polling
@@ -94,33 +94,49 @@ describe('InvestigationPanel polling', () => {
 });
 
 describe('InvestigationPanel result and citations', () => {
-  it('renders summary, confidence, root cause, factors and remediation, and shows a citation on click', async () => {
+  it('renders summary, confidence in words, root cause, factors, numbered remediation and the evidence rail', async () => {
     const user = userEvent.setup();
     render(<InvestigationPanel api={fakeApi({ getInvestigation: vi.fn().mockResolvedValue({ investigation: completed }) })} incidentId={INCIDENT_ID} />);
 
     expect(await screen.findByRole('heading', { name: 'Summary' })).toBeInTheDocument();
-    expect(screen.getByText('medium')).toBeInTheDocument();
+    expect(screen.getByText('Medium confidence')).toBeInTheDocument();
+    expect(screen.getByText(/a likely cause, worth confirming/)).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Contributing factors' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Remediation' })).toBeInTheDocument();
     expect(screen.getByText(/HikariPool timeouts in payment-service/)).toBeInTheDocument();
+    expect(screen.getByText(/Written by claude-haiku-5-5 with prompt v1/)).toBeInTheDocument();
 
-    const c3 = screen.getByRole('button', { name: 'Evidence C3' });
+    const rail = screen.getByRole('complementary', { name: 'Evidence' });
+    expect(rail).toHaveTextContent('Runbook');
+    expect(rail).toHaveTextContent('RB-db-pool');
+    expect(rail).toHaveTextContent('Increase maximumPoolSize');
+
+    const c3 = screen.getByRole('button', { name: 'Evidence 3' });
+    expect(c3).toHaveTextContent('[3]');
     expect(c3).toHaveAttribute('aria-pressed', 'false');
     await user.click(c3);
     expect(c3).toHaveAttribute('aria-pressed', 'true');
-    const detail = screen.getByRole('complementary');
-    expect(detail).toHaveTextContent('Evidence C3');
-    expect(detail).toHaveTextContent('runbook');
-    expect(detail).toHaveTextContent('RB-db-pool');
-    expect(detail).toHaveTextContent('Increase maximumPoolSize');
+    await user.click(c3); // a second click clears the selection
+    expect(c3).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('lists the evidence in number order, whatever order the API returns it in', async () => {
+    const shuffled = { ...completed, citations: [...(completed.citations ?? [])].reverse() };
+    render(<InvestigationPanel api={fakeApi({ getInvestigation: vi.fn().mockResolvedValue({ investigation: shuffled }) })} incidentId={INCIDENT_ID} />);
+    await screen.findByRole('heading', { name: 'Summary' });
+    const headings = screen.getAllByRole('heading', { level: 3, name: /^Evidence \d/ }).map((h) => h.textContent);
+    expect(headings).toEqual(['Evidence 1 Log', 'Evidence 2 Metric', 'Evidence 3 Runbook']);
   });
 
   it('citation markers are keyboard operable', async () => {
     const user = userEvent.setup();
     render(<InvestigationPanel api={fakeApi({ getInvestigation: vi.fn().mockResolvedValue({ investigation: completed }) })} incidentId={INCIDENT_ID} />);
-    const c2 = await screen.findByRole('button', { name: 'Evidence C2' });
+    const c2 = await screen.findByRole('button', { name: 'Evidence 2' });
     c2.focus();
     await user.keyboard('{Enter}');
-    expect(screen.getByRole('complementary')).toHaveTextContent('MET-acme-rps');
+    expect(c2).toHaveAttribute('aria-pressed', 'true');
+    expect(c2).toHaveFocus(); // highlighting must not remount the mark and drop keyboard focus
+    expect(document.getElementById('evidence-C2')).toHaveClass('evidenceActive');
+    expect(document.getElementById('evidence-C2')).toHaveTextContent('MET-acme-rps');
   });
 });

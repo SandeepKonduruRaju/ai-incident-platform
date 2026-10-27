@@ -1,75 +1,59 @@
-.page {
-  width: 100%;
-}
-
-.narrow {
-  max-width: 560px;
-}
-
 .muted,
 .hint {
-  color: var(--muted);
-  font-size: 0.9rem;
+  color: var(--slate);
+  font-size: var(--text-sm);
 }
 
 .titleRow {
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-2) var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.titleRow h1 {
+  margin: 0;
+}
+
+/* Buttons (and links that look like buttons). */
+.primary,
+.primaryLink,
+.secondary {
+  display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-}
-
-.form {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  padding: 1.25rem;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  justify-content: center;
+  min-height: 2.5rem;
+  padding: 0.45rem 1rem;
   border-radius: var(--radius);
-}
-
-.form label {
   font-weight: 600;
-  margin-top: 0.6rem;
-}
-
-.form input,
-.form select,
-.form textarea {
-  padding: 0.55rem 0.65rem;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg);
-  color: var(--text);
-}
-
-.form [aria-invalid='true'] {
-  border-color: var(--danger);
-}
-
-.fieldError {
-  color: var(--danger);
-  font-size: 0.9rem;
+  font-size: var(--text-md);
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
 }
 
 .primary,
 .primaryLink {
-  display: inline-block;
-  margin-top: 1rem;
-  padding: 0.6rem 1.1rem;
-  border: none;
-  border-radius: var(--radius);
-  background: var(--accent);
-  color: var(--accent-text);
-  font-weight: 600;
-  text-decoration: none;
-  cursor: pointer;
+  border: 1px solid var(--signal);
+  background: var(--signal);
+  color: var(--signal-ink);
 }
 
-.primaryLink {
-  margin-top: 0;
+.secondary {
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.primary:hover,
+.primaryLink:hover {
+  filter: brightness(1.08);
+}
+
+.secondary:hover {
+  background: var(--hover);
 }
 
 .primary:disabled {
@@ -77,67 +61,124 @@
   cursor: progress;
 }
 
-.table {
-  width: 100%;
-  border-collapse: collapse;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-}
-
-.table th,
-.table td {
-  padding: 0.6rem 0.75rem;
-  text-align: left;
-  border-bottom: 1px solid var(--border);
-  vertical-align: middle;
-}
-
-.table th {
-  font-size: 0.85rem;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
-.pager {
+/* Forms: one quiet surface, labels above fields. */
+.form {
   display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0.75rem 0;
-  color: var(--muted);
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-5);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
 }
 
-.facts {
+.form label {
+  margin-top: var(--space-3);
+  font-weight: 600;
+  font-size: var(--text-sm);
+}
+
+.form label:first-child {
+  margin-top: 0;
+}
+
+.optional {
+  font-weight: 400;
+  color: var(--slate);
+}
+
+.form input,
+.form select,
+.form textarea {
+  min-height: 2.5rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.form textarea {
+  resize: vertical;
+}
+
+/* Invalid fields keep their red border while focused (the global :focus-visible outline is drawn outside it), and
+   the border is thicker so the error does not rely on a 1px colour change alone. */
+.form [aria-invalid='true'],
+.form [aria-invalid='true']:focus,
+.form [aria-invalid='true']:focus-visible {
+  border-color: var(--danger);
+  box-shadow: inset 0 0 0 1px var(--danger);
+}
+
+.fieldError {
+  color: var(--danger);
+  font-size: var(--text-sm);
+}
+
+.form .primary {
+  align-self: flex-start;
+  margin-top: var(--space-4);
+}
+
+/* Sign in: one centred column. */
+.narrow {
+  max-width: 26rem;
+  margin: var(--space-5) auto 0;
+}
+
+.narrow > p {
+  margin: 0 0 var(--space-4);
+}
+
+/* Report an incident: the form, plus a side note on what happens next. */
+.formLayout {
   display: grid;
-  grid-template-columns: max-content 1fr;
-  gap: 0.35rem 1rem;
-  margin: 0 0 1rem;
+  grid-template-columns: minmax(0, 36rem) minmax(0, 16rem);
+  gap: var(--space-5);
+  justify-content: center;
+  align-items: start;
 }
 
-.facts dt {
-  color: var(--muted);
-}
-
-.facts dd {
+.formLayout h1,
+.formBack {
+  grid-column: 1 / -1;
   margin: 0;
 }
 
-.description {
-  white-space: pre-wrap;
+.formLayout h1 {
+  margin-top: calc(-1 * var(--space-2));
 }
 
-.visuallyHidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
+.sideNote {
+  padding: var(--space-1) 0 0 var(--space-4);
+  border-left: 3px solid var(--marker);
+  font-size: var(--text-sm);
+  color: var(--slate);
 }
 
-@media (max-width: 640px) {
-  .hideSmall {
-    display: none;
+.sideNote h2 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-md);
+  color: var(--ink);
+}
+
+.sideNote p {
+  margin: 0 0 var(--space-2);
+}
+
+@media (max-width: 760px) {
+  .formLayout {
+    grid-template-columns: minmax(0, 1fr);
   }
+}
+
+@media (max-width: 480px) {
+  .form {
+    padding: var(--space-4);
+  }
+}
+
+.back {
+  margin: 0 0 var(--space-4);
 }

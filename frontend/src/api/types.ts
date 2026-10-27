@@ -14,7 +14,8 @@ export type IncidentStatus = (typeof INCIDENT_STATUSES)[number];
 export const ROLES = ['VIEWER', 'RESPONDER', 'ADMIN'] as const;
 export type Role = (typeof ROLES)[number];
 
-export type InvestigationStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED';
+// NOT_STARTED: no run exists and none is on its way (decided by incident-service); retryable, like FAILED.
+export type InvestigationStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'NOT_STARTED';
 
 export interface Incident {
   id: string;

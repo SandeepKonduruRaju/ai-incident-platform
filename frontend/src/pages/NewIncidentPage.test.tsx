@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import { ApiError, type ApiClient } from '../api/client';
+import { ApiError, CREATE_TIMEOUT_MESSAGE, type ApiClient } from '../api/client';
 import { AuthProvider } from '../auth/AuthContext';
 import { Router } from '../router';
 import { fakeApi } from '../test/fakeApi';
@@ -45,7 +45,7 @@ describe('NewIncidentPage', () => {
     const api = fakeApi();
     renderWith(api);
 
-    await user.click(screen.getByRole('button', { name: /create incident/i }));
+    await user.click(screen.getByRole('button', { name: /report incident/i }));
 
     const title = screen.getByLabelText(/title/i);
     expect(title).toHaveAttribute('aria-invalid', 'true');
@@ -66,7 +66,7 @@ describe('NewIncidentPage', () => {
     renderWith(fakeApi({ createIncident }));
 
     await fillValid(user);
-    await user.click(screen.getByRole('button', { name: /create incident/i }));
+    await user.click(screen.getByRole('button', { name: /report incident/i }));
 
     expect(await screen.findByText('must not be blank')).toBeInTheDocument();
     expect(screen.getByLabelText(/affected service/i)).toHaveAttribute('aria-invalid', 'true');
@@ -86,7 +86,7 @@ describe('NewIncidentPage', () => {
     renderWith(fakeApi({ createIncident }));
 
     await fillValid(user);
-    await user.click(screen.getByRole('button', { name: /create incident/i }));
+    await user.click(screen.getByRole('button', { name: /report incident/i }));
 
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('Too many requests');
@@ -95,20 +95,65 @@ describe('NewIncidentPage', () => {
     expect(alert).toHaveTextContent('req-429');
   });
 
+  it('on a timeout says the incident may have been saved; sending again reuses the key, editing makes a new one', async () => {
+    const user = userEvent.setup();
+    const createIncident = vi
+      .fn()
+      .mockRejectedValueOnce(new ApiError(0, CREATE_TIMEOUT_MESSAGE, { requestId: 'req-slow', timedOut: true }))
+      .mockRejectedValueOnce(new ApiError(0, CREATE_TIMEOUT_MESSAGE, { requestId: 'req-slow-2', timedOut: true }))
+      .mockResolvedValue({ id: '0b9f4d6e-7a1c-4c2e-9d55-2f1e8a3b6c01' });
+    renderWith(fakeApi({ createIncident }));
+    await fillValid(user);
+
+    await user.click(screen.getByRole('button', { name: /report incident/i }));
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('The incident may have been saved');
+    expect(alert).toHaveTextContent('will not create a duplicate');
+    expect(alert).toHaveTextContent('req-slow');
+
+    await user.click(screen.getByRole('button', { name: /report incident/i })); // the same report again
+    const [first, second] = createIncident.mock.calls.map((call) => call[1].idempotencyKey);
+    expect(second).toBe(first);
+
+    await user.type(screen.getByLabelText(/title/i), ' (EU)'); // an edit: a different report
+    await user.click(screen.getByRole('button', { name: /report incident/i }));
+    expect(createIncident.mock.calls[2][1].idempotencyKey).not.toBe(first);
+  });
+
+  it('suggests services seen in existing incidents (free text stays allowed) and sets the page title', async () => {
+    const listIncidents = vi.fn().mockResolvedValue({
+      items: [{ affectedService: 'search-service' }, { affectedService: 'checkout-api' }, { affectedService: 'search-service' }],
+      page: 0,
+      size: 100,
+      totalElements: 3,
+      totalPages: 1,
+    });
+    renderWith(fakeApi({ listIncidents }));
+
+    const service = screen.getByLabelText(/affected service/i);
+    await vi.waitFor(() => expect(service).toHaveAttribute('list', 'known-services'));
+    const options = [...document.querySelectorAll('#known-services option')].map((o) => o.getAttribute('value'));
+    expect(options).toEqual(['checkout-api', 'search-service']);
+    expect(document.title).toBe('Report an incident — Incident Platform');
+  });
+
   it('sends the trimmed request and navigates to the new incident', async () => {
     const user = userEvent.setup();
     const createIncident = vi.fn().mockResolvedValue({ id: '0b9f4d6e-7a1c-4c2e-9d55-2f1e8a3b6c01' });
     renderWith(fakeApi({ createIncident }));
 
     await fillValid(user);
-    await user.click(screen.getByRole('button', { name: /create incident/i }));
+    await user.click(screen.getByRole('button', { name: /report incident/i }));
 
-    expect(createIncident).toHaveBeenCalledWith({
-      title: 'Payments failing',
-      description: undefined,
-      severity: 'HIGH',
-      affectedService: 'payment-service',
-    });
+    expect(createIncident).toHaveBeenCalledWith(
+      {
+        title: 'Payments failing',
+        description: undefined,
+        severity: 'HIGH',
+        affectedService: 'payment-service',
+      },
+      { idempotencyKey: expect.stringMatching(/.+/) },
+    );
     expect(window.location.pathname).toBe('/incidents/0b9f4d6e-7a1c-4c2e-9d55-2f1e8a3b6c01');
   });
 });
