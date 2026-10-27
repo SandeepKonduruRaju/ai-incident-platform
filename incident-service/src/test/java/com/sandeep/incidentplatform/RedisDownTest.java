@@ -28,7 +28,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /**
  * Milestone 4, graceful degradation: cache and rate limit are ON but Redis is unreachable (nothing listens
- * on port 1). Reads still work (straight from the worker), incident creation is not limited (fail open),
+ * on port 1). Reads still work (straight from the worker), incident creation and investigation retries are not
+ * limited (fail open),
  * and every failure is counted in redis_errors_total. Needs no Docker.
  * failure-cooldown=0: Redis is retried on every request, so each one exercises the error path.
  */
@@ -74,7 +75,14 @@ class RedisDownTest {
         }
 
         verify(worker, times(2)).fetch(tenant, id); // no cache: every read went to the worker
-        assertThat(count("rate_limit")).isGreaterThanOrEqualTo(3);
+
+        // Retry has its own limit (also 1/min here): it fails open too, so both reach the controller, which
+        // refuses them because the investigation is COMPLETED (409), never 429.
+        for (int i = 0; i < 2; i++) {
+            mockMvc.perform(post("/api/v1/incidents/{id}/investigation/retry", id).with(asTenant(tenant)))
+                    .andExpect(status().isConflict());
+        }
+        assertThat(count("rate_limit")).isGreaterThanOrEqualTo(5);
         assertThat(count("cache_get")).isGreaterThanOrEqualTo(2);
         assertThat(count("cache_put")).isGreaterThanOrEqualTo(2);
     }

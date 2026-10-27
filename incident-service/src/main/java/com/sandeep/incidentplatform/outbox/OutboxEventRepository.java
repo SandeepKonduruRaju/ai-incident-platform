@@ -5,6 +5,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface OutboxEventRepository extends JpaRepository<OutboxEvent, UUID> {
@@ -22,4 +23,8 @@ public interface OutboxEventRepository extends JpaRepository<OutboxEvent, UUID> 
     List<OutboxEvent> lockUnpublishedBatch(@Param("limit") int limit);
 
     long countByPublishedAtIsNull();
+
+    // The newest event of one type for an aggregate: with IncidentCreated, the newest investigation request (first or
+    // retried) of an incident. Same rule as the worker's superseded check (investigation-worker/app/request_check.py).
+    Optional<OutboxEvent> findFirstByAggregateIdAndEventTypeOrderByCreatedAtDesc(UUID aggregateId, String eventType);
 }

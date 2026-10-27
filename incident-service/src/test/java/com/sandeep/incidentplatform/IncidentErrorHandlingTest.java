@@ -1,5 +1,6 @@
 package com.sandeep.incidentplatform;
 
+import com.sandeep.incidentplatform.service.IdempotentIncidentCreator;
 import com.sandeep.incidentplatform.controller.IncidentController;
 import com.sandeep.incidentplatform.model.Incident;
 import com.sandeep.incidentplatform.model.IncidentStatus;
@@ -35,7 +36,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 // Every error response must be an RFC 9457 Problem Details body with the right status code.
 @WebMvcTest(IncidentController.class)
-@Import(SecurityConfig.class)
+@Import({SecurityConfig.class, IdempotentIncidentCreator.class}) // the creator is real; IncidentService is mocked
 class IncidentErrorHandlingTest {
 
     private static final String BASE = "/api/v1/incidents";

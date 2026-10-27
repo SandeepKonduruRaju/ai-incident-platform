@@ -9,6 +9,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -44,5 +45,17 @@ public class InvestigationController {
             ok.header(HttpHeaders.RETRY_AFTER, POLL_AFTER_SECONDS);
         }
         return ok.body(investigation);
+    }
+
+    /**
+     * POST /api/v1/incidents/{id}/investigation/retry: requests the investigation again, only when it is NOT_STARTED
+     * or FAILED (409 otherwise). 202 Accepted: the new run starts asynchronously; poll the GET above.
+     */
+    @PostMapping("/{id}/investigation/retry")
+    public ResponseEntity<InvestigationResponse> retryInvestigation(@AuthenticationPrincipal Jwt jwt,
+                                                                    @PathVariable UUID id) {
+        InvestigationResponse pending = investigationService.retry(tenantOf(jwt), id)
+                .orElseThrow(() -> new IncidentNotFoundException(id));
+        return ResponseEntity.accepted().header(HttpHeaders.RETRY_AFTER, POLL_AFTER_SECONDS).body(pending);
     }
 }

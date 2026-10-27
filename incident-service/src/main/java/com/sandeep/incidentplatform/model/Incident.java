@@ -41,6 +41,10 @@ public class Incident {
     @Column(nullable = false)
     private Instant createdAt;
 
+    // The client's Idempotency-Key of the POST that created it (null without one); unique per tenant (V6).
+    @Column(updatable = false)
+    private String idempotencyKey;
+
     // Optimistic locking: concurrent updates to the same row fail instead of silently overwriting.
     // Also lets Spring Data treat a null version as "new", so save() inserts without a SELECT first.
     @Version
@@ -61,6 +65,13 @@ public class Incident {
         this.status = status;
         this.affectedService = affectedService;
         this.createdAt = createdAt;
+    }
+
+    public Incident(UUID id, String tenantId, String title, String description,
+                    IncidentSeverity severity, IncidentStatus status,
+                    String affectedService, Instant createdAt, String idempotencyKey) {
+        this(id, tenantId, title, description, severity, status, affectedService, createdAt);
+        this.idempotencyKey = idempotencyKey;
     }
 
     public UUID id() {
@@ -93,6 +104,10 @@ public class Incident {
 
     public Instant createdAt() {
         return createdAt;
+    }
+
+    public String idempotencyKey() {
+        return idempotencyKey;
     }
 
     public void changeStatus(IncidentStatus newStatus) {

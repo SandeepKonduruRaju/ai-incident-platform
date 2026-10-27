@@ -19,18 +19,24 @@ public class RedisConfig {
     @ConditionalOnProperty(name = "app.redis.rate-limit.enabled", havingValue = "true")
     static class RateLimitWebConfig implements WebMvcConfigurer {
 
-        private final RateLimitInterceptor interceptor;
+        private final RateLimitInterceptor createIncident;
+        private final RateLimitInterceptor retryInvestigation;
 
+        // Both endpoints enqueue an LLM investigation; each gets its own per-tenant budget of the same size.
         RateLimitWebConfig(StringRedisTemplate redis, RedisGuard guard, PlatformMetrics metrics,
                            RedisFeatureProperties properties) {
-            TenantRateLimiter limiter = new TenantRateLimiter(redis,
-                    properties.rateLimit().createIncidentPerMinute(), Clock.systemUTC());
-            this.interceptor = new RateLimitInterceptor(limiter, guard, metrics);
+            int perMinute = properties.rateLimit().createIncidentPerMinute();
+            this.createIncident = new RateLimitInterceptor(new TenantRateLimiter(redis,
+                    TenantRateLimiter.CREATE_INCIDENT, perMinute, Clock.systemUTC()), guard, metrics, "create_incident");
+            this.retryInvestigation = new RateLimitInterceptor(new TenantRateLimiter(redis,
+                    TenantRateLimiter.RETRY_INVESTIGATION, perMinute, Clock.systemUTC()), guard, metrics,
+                    "retry_investigation");
         }
 
         @Override
         public void addInterceptors(InterceptorRegistry registry) {
-            registry.addInterceptor(interceptor).addPathPatterns("/api/v1/incidents");
+            registry.addInterceptor(createIncident).addPathPatterns("/api/v1/incidents");
+            registry.addInterceptor(retryInvestigation).addPathPatterns("/api/v1/incidents/*/investigation/retry");
         }
     }
 }

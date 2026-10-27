@@ -44,7 +44,7 @@ class IncidentServiceEventTest {
     @Test
     void shouldSaveIncidentAndOutboxRowWithTheEvent() {
         // Arrange: save() returns whatever it is given, like a real repository
-        when(incidentRepository.save(any(Incident.class))).thenAnswer(call -> call.getArgument(0));
+        when(incidentRepository.saveAndFlush(any(Incident.class))).thenAnswer(call -> call.getArgument(0));
         IncidentService service = new IncidentService(incidentRepository, outboxEventRepository, jsonMapper,
                 PlatformMetrics.inMemory(), TraceContextSupport.noop());
         CreateIncidentRequest request = new CreateIncidentRequest(
@@ -59,7 +59,7 @@ class IncidentServiceEventTest {
 
         // Assert: the incident is saved, then its outbox row (both in create()'s one transaction)
         InOrder order = inOrder(incidentRepository, outboxEventRepository);
-        order.verify(incidentRepository).save(incident);
+        order.verify(incidentRepository).saveAndFlush(incident); // flushed: a duplicate Idempotency-Key fails here
         ArgumentCaptor<OutboxEvent> captor = ArgumentCaptor.forClass(OutboxEvent.class);
         order.verify(outboxEventRepository).save(captor.capture());
 

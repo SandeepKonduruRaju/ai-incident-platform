@@ -1,6 +1,7 @@
 package com.sandeep.incidentplatform.redis;
 
 import com.sandeep.incidentplatform.dto.InvestigationResponse;
+import com.sandeep.incidentplatform.investigation.InvestigationStatus;
 import com.sandeep.incidentplatform.observability.PlatformMetrics;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -64,13 +65,19 @@ public class RedisInvestigationCache implements InvestigationCache {
 
     @Override
     public void putIfFinished(String tenantId, InvestigationResponse investigation) {
-        if (investigation.status().inProgress()) {
-            return; // PENDING/RUNNING are never cached
+        InvestigationStatus status = investigation.status();
+        if (status != InvestigationStatus.COMPLETED && status != InvestigationStatus.FAILED) {
+            return; // PENDING/RUNNING/NOT_STARTED are never cached
         }
         guard.call("cache_put", () -> {
             redis.opsForValue().set(key(tenantId, investigation.incidentId()), json.writeValueAsString(investigation),
                     properties.cache().ttl());
             return Boolean.TRUE;
         }, Boolean.FALSE);
+    }
+
+    @Override
+    public void evict(String tenantId, UUID incidentId) {
+        guard.call("cache_evict", () -> redis.delete(key(tenantId, incidentId)), Boolean.FALSE);
     }
 }

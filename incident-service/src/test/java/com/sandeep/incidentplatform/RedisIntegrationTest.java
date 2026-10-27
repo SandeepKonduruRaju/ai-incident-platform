@@ -157,6 +157,35 @@ class RedisIntegrationTest {
         createIncident(newTenant());
     }
 
+    @Test
+    void retryingTooOftenReturns429WithRetryAfterAndLeavesIncidentCreationItsOwnBudget() throws Exception {
+        String tenant = newTenant();
+        UUID id = createIncident(tenant); // 1 of 3 creations used
+        double limited = count("rate.limited", "endpoint", "retry_investigation");
+
+        // The request is fresh (PENDING), so the controller refuses these retries with 409; they still count.
+        for (int i = 0; i < 3; i++) {
+            mockMvc.perform(post("/api/v1/incidents/{id}/investigation/retry", id).with(asTenant(tenant)))
+                    .andExpect(status().isConflict());
+        }
+        String retryAfter = mockMvc.perform(post("/api/v1/incidents/{id}/investigation/retry", id)
+                        .with(asTenant(tenant)))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().exists("Retry-After"))
+                .andExpect(jsonPath("$.title").value("Too many requests"))
+                .andExpect(jsonPath("$.limitPerMinute").value(3))
+                .andReturn().getResponse().getHeader("Retry-After");
+        assertThat(Long.parseLong(retryAfter)).isBetween(1L, 60L);
+        assertThat(count("rate.limited", "endpoint", "retry_investigation")).isEqualTo(limited + 1);
+
+        // Separate budgets: the tenant can still report incidents, and other tenants can still retry.
+        createIncident(tenant);
+        String other = newTenant();
+        UUID otherId = createIncident(other);
+        mockMvc.perform(post("/api/v1/incidents/{id}/investigation/retry", otherId).with(asTenant(other)))
+                .andExpect(status().isConflict());
+    }
+
     static final String INCIDENT_JSON = """
             { "title": "Payments failing", "severity": "HIGH", "affectedService": "payment-service" }
             """;

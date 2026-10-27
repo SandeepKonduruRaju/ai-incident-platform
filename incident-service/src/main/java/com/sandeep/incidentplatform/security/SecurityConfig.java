@@ -83,7 +83,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/v1/incidents", "/api/v1/incidents/*",
                                         "/api/v1/incidents/*/investigation")
                                 .hasAnyRole(Role.VIEWER.name(), Role.RESPONDER.name(), Role.ADMIN.name())
-                        .requestMatchers(HttpMethod.POST, "/api/v1/incidents")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/incidents", "/api/v1/incidents/*/investigation/retry")
                                 .hasAnyRole(Role.RESPONDER.name(), Role.ADMIN.name())
                         .requestMatchers(HttpMethod.PATCH, "/api/v1/incidents/*/status")
                                 .hasAnyRole(Role.RESPONDER.name(), Role.ADMIN.name())

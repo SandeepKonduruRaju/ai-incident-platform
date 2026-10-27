@@ -61,7 +61,7 @@ class IncidentServiceTest {
     @Test
     void shouldCreateIncidentWithExpectedValues() {
         // Arrange: save() returns whatever it is given, like a real repository
-        when(incidentRepository.save(any(Incident.class))).thenAnswer(call -> call.getArgument(0));
+        when(incidentRepository.saveAndFlush(any(Incident.class))).thenAnswer(call -> call.getArgument(0));
         CreateIncidentRequest request = new CreateIncidentRequest(
                 "Payments failing",
                 "Customers cannot complete checkout",
@@ -82,7 +82,7 @@ class IncidentServiceTest {
         assertEquals(request.description(), incident.description());
         assertEquals(request.severity(), incident.severity());
         assertEquals(request.affectedService(), incident.affectedService());
-        verify(incidentRepository).save(incident);
+        verify(incidentRepository).saveAndFlush(incident);
     }
 
     @Test
