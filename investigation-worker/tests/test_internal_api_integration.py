@@ -15,7 +15,6 @@ from app.config import Settings, get_settings
 from app.embedding import FakeEmbedder
 from app.events import IncidentCreatedPayload
 from app.ingest import ingest
-from app.internal_api import SNIPPET_CHARS
 from app.investigations import Usage, claim, create_pending, save_completed, save_failed
 from app.main import app
 from app.retrieval import load_eval_incident
@@ -107,7 +106,7 @@ async def test_completed_investigation_with_resolved_citations(client, engine):
     assert [c["label"] for c in body["citations"]] == ["C1", "C2"]  # only labels used in the result
     first = body["citations"][0]
     assert (first["sourceType"], first["sourceId"]) == (chunks[0].source_type, chunks[0].source_id)
-    assert first["snippet"] == chunks[0].content[:SNIPPET_CHARS]
+    assert first["snippet"] == chunks[0].content  # the whole chunk: the UI previews and expands it
     assert body["completedAt"] and body["createdAt"] and body["failureReason"] is None
 
 

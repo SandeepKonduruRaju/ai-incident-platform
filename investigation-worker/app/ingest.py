@@ -4,8 +4,9 @@
     python -m app.ingest --tenant acme
 
 Idempotent: chunk ids are deterministic (see app.chunking), and the insert is an upsert
-(INSERT ... ON CONFLICT (id) DO UPDATE), so running it again updates the same rows instead of adding new
-ones. Known gap: a chunk that disappears from the source (e.g. a removed runbook section) is not deleted.
+(INSERT ... ON CONFLICT (id) DO UPDATE of content, embedding and ts), so running it again updates the same rows
+instead of adding new ones (ts too: the demo seed re-anchors its evidence to the time it runs).
+Known gap: a chunk that disappears from the source (e.g. a removed runbook section) is not deleted.
 """
 
 import argparse
@@ -34,7 +35,8 @@ UPSERT = text(
             CAST(:embedding AS vector))
     ON CONFLICT (id) DO UPDATE
         SET content = EXCLUDED.content,
-            embedding = EXCLUDED.embedding
+            embedding = EXCLUDED.embedding,
+            ts = EXCLUDED.ts
     """
 )
 
@@ -87,8 +89,12 @@ async def upsert_chunks(
 async def ingest(
     engine: AsyncEngine, embedder: Embedder, data_dir: Path = DEFAULT_DATA_DIR, tenant: str = "all"
 ) -> Counter[tuple[str, str]]:
-    chunks = chunk_dataset(**load_dataset(data_dir, tenant))
-    return await upsert_chunks(engine, embedder, chunks)
+    return await ingest_dataset(engine, embedder, load_dataset(data_dir, tenant))
+
+
+async def ingest_dataset(engine: AsyncEngine, embedder: Embedder, dataset: dict[str, list[dict]]) -> Counter[tuple[str, str]]:
+    """Chunk, embed and upsert an in-memory dataset ({runbooks, logs, metrics, incidents}), e.g. app.demo_data."""
+    return await upsert_chunks(engine, embedder, chunk_dataset(**dataset))
 
 
 async def _run(tenant: str, data_dir: Path) -> None:

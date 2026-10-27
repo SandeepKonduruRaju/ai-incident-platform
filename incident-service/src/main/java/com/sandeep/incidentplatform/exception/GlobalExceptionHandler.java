@@ -74,6 +74,30 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return problem;
     }
 
+    // 409: retry of an investigation that is not NOT_STARTED/FAILED, or requested again concurrently.
+    @ExceptionHandler(InvestigationRetryConflictException.class)
+    public ProblemDetail handleRetryConflict(InvestigationRetryConflictException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
+        problem.setTitle("Investigation cannot be retried");
+        return problem;
+    }
+
+    // 400: malformed Idempotency-Key header.
+    @ExceptionHandler(InvalidIdempotencyKeyException.class)
+    public ProblemDetail handleInvalidIdempotencyKey(InvalidIdempotencyKeyException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
+        problem.setTitle("Invalid Idempotency-Key");
+        return problem;
+    }
+
+    // 422: an Idempotency-Key replayed with a different body (the key identifies ONE request, not a slot to reuse).
+    @ExceptionHandler(IdempotencyKeyReusedException.class)
+    public ProblemDetail handleIdempotencyKeyReused(IdempotencyKeyReusedException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_CONTENT, ex.getMessage());
+        problem.setTitle("Idempotency-Key reused");
+        return problem;
+    }
+
     // 503: the investigation worker is down, slow or misconfigured. The incident itself is fine;
     // Retry-After tells the client when to try again. The cause was already logged by the client class.
     @ExceptionHandler(WorkerUnavailableException.class)

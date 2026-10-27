@@ -15,6 +15,8 @@ export default defineConfig({
   },
   build: {
     sourcemap: false,
+    // Fonts stay files: nginx's CSP (font-src falls back to 'self') would block fonts inlined as data: URIs.
+    assetsInlineLimit: (file) => (/\.woff2?$/.test(file) ? false : undefined),
   },
   test: {
     environment: 'jsdom',

@@ -1,5 +1,6 @@
 package com.sandeep.incidentplatform;
 
+import com.sandeep.incidentplatform.service.IdempotentIncidentCreator;
 import com.sandeep.incidentplatform.controller.IncidentController;
 import com.sandeep.incidentplatform.model.Incident;
 import com.sandeep.incidentplatform.model.IncidentSeverity;
@@ -35,7 +36,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 // HTTP-level test of IncidentController: real Spring MVC (routing, JSON, status codes),
 // with IncidentService mocked so the test does not depend on how incidents are stored.
 @WebMvcTest(IncidentController.class)
-@Import(SecurityConfig.class)
+@Import({SecurityConfig.class, IdempotentIncidentCreator.class}) // the creator is real; IncidentService is mocked
 class IncidentControllerTest {
 
     @Autowired

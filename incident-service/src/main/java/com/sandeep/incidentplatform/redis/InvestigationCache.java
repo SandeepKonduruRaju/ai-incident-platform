@@ -21,10 +21,17 @@ public interface InvestigationCache {
         @Override
         public void putIfFinished(String tenantId, InvestigationResponse investigation) {
         }
+
+        @Override
+        public void evict(String tenantId, UUID incidentId) {
+        }
     };
 
     Optional<InvestigationResponse> get(String tenantId, UUID incidentId);
 
-    /** Stores the answer only if it is COMPLETED or FAILED; anything in progress is ignored. */
+    /** Stores the answer only if it is COMPLETED or FAILED; anything else (in progress, NOT_STARTED) is ignored. */
     void putIfFinished(String tenantId, InvestigationResponse investigation);
+
+    /** Drops the cached answer (a retry starts a new run). */
+    void evict(String tenantId, UUID incidentId);
 }

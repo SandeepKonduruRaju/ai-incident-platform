@@ -1,18 +1,26 @@
-import { useEffect, useState } from 'react';
-import type { Incident, Page } from '../api/types';
+import { useEffect, useMemo, useState } from 'react';
+import { INCIDENT_STATUSES, SEVERITIES, type Incident, type Page } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import { SeverityBadge, StatusBadge } from '../components/Badges';
 import { ErrorMessage } from '../components/ErrorMessage';
+import { formatFullDateTime, formatRelative } from '../format';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
+import { SEVERITY_LABELS, STATUS_LABELS } from '../labels';
 import { Link } from '../router';
-import styles from './Pages.module.css';
+import { NO_FILTERS, filterIncidents, isFiltered, type IncidentFilters } from './incidentFilters';
+import styles from './Incidents.module.css';
+import pages from './Pages.module.css';
 
-export const PAGE_SIZE = 20;
+/** The API's maximum page size: search and filters run in the browser over the incidents of the loaded page. */
+export const PAGE_SIZE = 100;
 
 /** Newest first (the API's order), PAGE_SIZE per page; the page number is in the URL (?page=n). */
 export function IncidentsPage({ page }: { page: number }) {
   const { api, session } = useAuth();
   const [data, setData] = useState<Page<Incident> | null>(null);
   const [error, setError] = useState<unknown>(null);
+  const [filters, setFilters] = useState<IncidentFilters>(NO_FILTERS);
+  useDocumentTitle('Incidents');
 
   useEffect(() => {
     let cancelled = false;
@@ -27,65 +35,147 @@ export function IncidentsPage({ page }: { page: number }) {
     };
   }, [api, page]);
 
+  const visible = useMemo(() => (data ? filterIncidents(data.items, filters) : []), [data, filters]);
   const canCreate = session?.role !== 'VIEWER';
+  const tenantIsEmpty = data !== null && data.totalElements === 0;
+
   return (
-    <main className={styles.page}>
-      <div className={styles.titleRow}>
+    <main>
+      <div className={pages.titleRow}>
         <h1>Incidents</h1>
-        {canCreate && (
-          <Link to="/incidents/new" className={styles.primaryLink}>
-            New incident
+        {canCreate && !tenantIsEmpty && (
+          <Link to="/incidents/new" className={pages.primaryLink}>
+            Report an incident
           </Link>
         )}
       </div>
 
       {error !== null && <ErrorMessage error={error} />}
-      {!data && error === null && <p role="status">Loading incidents…</p>}
-      {data && data.items.length === 0 && <p>No incidents yet{canCreate ? ': create the first one.' : '.'}</p>}
+      {!data && error === null && (
+        <p role="status" className={pages.muted}>
+          Loading incidents…
+        </p>
+      )}
 
-      {data && data.items.length > 0 && (
+      {tenantIsEmpty && (
+        <div className={styles.empty}>
+          <h2>No incidents yet</h2>
+          <p>Incidents reported for this tenant will appear here, newest first.</p>
+          {canCreate && (
+            <Link to="/incidents/new" className={pages.primaryLink}>
+              Report an incident
+            </Link>
+          )}
+        </div>
+      )}
+
+      {data && !tenantIsEmpty && (
         <>
-          <table className={styles.table}>
-            <caption className={styles.visuallyHidden}>Incidents, newest first</caption>
-            <thead>
-              <tr>
-                <th scope="col">Title</th>
-                <th scope="col">Severity</th>
-                <th scope="col">Status</th>
-                <th scope="col" className={styles.hideSmall}>Service</th>
-                <th scope="col" className={styles.hideSmall}>Created</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.items.map((incident) => (
-                <tr key={incident.id}>
-                  <td>
-                    <Link to={`/incidents/${incident.id}`}>{incident.title}</Link>
-                  </td>
-                  <td>
-                    <SeverityBadge severity={incident.severity} />
-                  </td>
-                  <td>
-                    <StatusBadge status={incident.status} />
-                  </td>
-                  <td className={styles.hideSmall}>{incident.affectedService}</td>
-                  <td className={styles.hideSmall}>
-                    <time dateTime={incident.createdAt}>{new Date(incident.createdAt).toLocaleString()}</time>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <Filters filters={filters} onChange={setFilters} />
+          <p className={styles.count} role="status">
+            {isFiltered(filters)
+              ? `${visible.length} of ${data.items.length} incidents on this page match.`
+              : `${data.totalElements} incidents, newest first.`}
+          </p>
 
-          <nav className={styles.pager} aria-label="Pagination">
-            {page > 0 ? <Link to={`/incidents?page=${page - 1}`}>← Newer</Link> : <span />}
-            <span>
-              Page {data.page + 1} of {Math.max(data.totalPages, 1)} · {data.totalElements} incidents
-            </span>
-            {page + 1 < data.totalPages ? <Link to={`/incidents?page=${page + 1}`}>Older →</Link> : <span />}
-          </nav>
+          {visible.length === 0 ? (
+            <div className={styles.empty}>
+              <h2>No incidents match</h2>
+              <p>Try a different search, or clear the filters.</p>
+              <button type="button" className={pages.secondary} onClick={() => setFilters(NO_FILTERS)}>
+                Clear filters
+              </button>
+            </div>
+          ) : (
+            <ul className={styles.list} aria-label="Incidents">
+              {visible.map((incident) => (
+                <IncidentRow key={incident.id} incident={incident} />
+              ))}
+            </ul>
+          )}
+
+          {data.totalPages > 1 && (
+            <nav className={styles.pager} aria-label="Pagination">
+              {page > 0 ? (
+                <Link to={`/incidents?page=${page - 1}`} className={pages.secondary}>
+                  Newer
+                </Link>
+              ) : (
+                <span />
+              )}
+              <span>
+                Page {data.page + 1} of {data.totalPages}
+              </span>
+              {page + 1 < data.totalPages ? (
+                <Link to={`/incidents?page=${page + 1}`} className={pages.secondary}>
+                  Older
+                </Link>
+              ) : (
+                <span />
+              )}
+            </nav>
+          )}
         </>
       )}
     </main>
+  );
+}
+
+/** The whole row is the link target (the title link stretches over it); Tab reaches one link per row. */
+function IncidentRow({ incident }: { incident: Incident }) {
+  return (
+    <li className={`${styles.row} ${styles[`sev_${incident.severity}`]}`}>
+      <div className={styles.main}>
+        <Link to={`/incidents/${incident.id}`} className={styles.title}>
+          {incident.title}
+        </Link>
+        <span className={styles.service}>{incident.affectedService}</span>
+      </div>
+      <SeverityBadge severity={incident.severity} />
+      <StatusBadge status={incident.status} />
+      <time className={styles.time} dateTime={incident.createdAt} title={formatFullDateTime(incident.createdAt)}>
+        {formatRelative(incident.createdAt)}
+      </time>
+    </li>
+  );
+}
+
+function Filters({ filters, onChange }: { filters: IncidentFilters; onChange: (filters: IncidentFilters) => void }) {
+  const set = <K extends keyof IncidentFilters>(key: K, value: IncidentFilters[K]) => onChange({ ...filters, [key]: value });
+  return (
+    <div className={styles.filters} role="search">
+      <div className={styles.field}>
+        <label htmlFor="incident-search">Search</label>
+        <input
+          id="incident-search"
+          type="search"
+          placeholder="Title or service"
+          value={filters.query}
+          onChange={(e) => set('query', e.target.value)}
+        />
+      </div>
+      <div className={styles.field}>
+        <label htmlFor="severity-filter">Severity</label>
+        <select id="severity-filter" value={filters.severity} onChange={(e) => set('severity', e.target.value as IncidentFilters['severity'])}>
+          <option value="">All</option>
+          {[...SEVERITIES].reverse().map((s) => (
+            <option key={s} value={s}>
+              {SEVERITY_LABELS[s]}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className={styles.field}>
+        <label htmlFor="status-filter">Status</label>
+        <select id="status-filter" value={filters.status} onChange={(e) => set('status', e.target.value as IncidentFilters['status'])}>
+          <option value="">All</option>
+          {INCIDENT_STATUSES.map((s) => (
+            <option key={s} value={s}>
+              {STATUS_LABELS[s]}
+            </option>
+          ))}
+        </select>
+      </div>
+    </div>
   );
 }

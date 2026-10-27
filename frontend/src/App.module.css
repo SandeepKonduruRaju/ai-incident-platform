@@ -4,50 +4,99 @@
 }
 
 .skip:focus {
-  left: var(--space);
-  top: var(--space);
-  z-index: 10;
-  padding: 0.5rem 1rem;
+  left: var(--gutter);
+  top: var(--space-2);
+  z-index: 30;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius);
   background: var(--surface);
+  color: var(--ink);
 }
 
+/* Slim and quiet: the page content is what matters. */
 .topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem 1rem;
+  gap: var(--space-3);
   align-items: center;
   justify-content: space-between;
-  padding: 0.75rem var(--space);
+  min-height: var(--header-height);
+  padding: var(--space-2) var(--gutter);
   background: var(--surface);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--line);
 }
 
 .brand {
+  display: inline-flex;
+  gap: var(--space-2);
+  align-items: center;
+  color: var(--ink);
   font-weight: 700;
   text-decoration: none;
-  color: var(--text);
+  white-space: nowrap;
+}
+
+.tools {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  min-width: 0;
 }
 
 .user {
-  display: flex;
-  gap: 0.75rem;
-  align-items: center;
-  color: var(--muted);
-  font-size: 0.9rem;
+  font-size: var(--text-sm);
+  color: var(--slate);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.user button {
-  padding: 0.3rem 0.8rem;
-  border: 1px solid var(--border);
+.user strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.signOut {
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius);
   background: transparent;
-  color: var(--text);
+  font-size: var(--text-sm);
   cursor: pointer;
+  white-space: nowrap;
+}
+
+.signOut:hover {
+  background: var(--hover);
 }
 
 .content {
-  max-width: 1100px;
+  max-width: 1200px;
   margin: 0 auto;
-  padding: var(--space);
+  padding: var(--space-5) var(--gutter) var(--space-6);
   outline: none;
+}
+
+/* Focus is moved here on navigation (for screen readers); it is not an interactive control, so no ring. */
+.content:focus,
+.content:focus-visible {
+  outline: none;
+}
+
+/* Phones: the logo mark stands for the name; "Tenant" is implied by the value. */
+@media (max-width: 560px) {
+  .brandName,
+  .tenantLabel {
+    display: none;
+  }
+
+  .tools {
+    gap: var(--space-2);
+  }
+
+  .content {
+    padding-top: var(--space-4);
+  }
 }

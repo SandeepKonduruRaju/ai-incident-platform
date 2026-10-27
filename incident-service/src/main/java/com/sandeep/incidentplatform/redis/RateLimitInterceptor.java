@@ -12,7 +12,8 @@ import org.springframework.web.servlet.HandlerInterceptor;
 import static com.sandeep.incidentplatform.security.TenantResolver.TENANT_CLAIM;
 
 /**
- * Applies TenantRateLimiter to POST /api/v1/incidents. Runs after Spring Security (an interceptor sits inside
+ * Applies a TenantRateLimiter to one POST endpoint (POST /api/v1/incidents, and POST .../investigation/retry with its
+ * own budget: both enqueue an LLM investigation). Runs after Spring Security (an interceptor sits inside
  * the DispatcherServlet), so only authenticated, authorised callers are counted, by the tenant of their JWT.
  * Over the limit: RateLimitExceededException, which GlobalExceptionHandler turns into 429 + Retry-After.
  *
@@ -25,11 +26,13 @@ public class RateLimitInterceptor implements HandlerInterceptor {
     private final TenantRateLimiter limiter;
     private final RedisGuard guard;
     private final PlatformMetrics metrics;
+    private final String endpoint; // metric label: create_incident, retry_investigation
 
-    public RateLimitInterceptor(TenantRateLimiter limiter, RedisGuard guard, PlatformMetrics metrics) {
+    public RateLimitInterceptor(TenantRateLimiter limiter, RedisGuard guard, PlatformMetrics metrics, String endpoint) {
         this.limiter = limiter;
         this.guard = guard;
         this.metrics = metrics;
+        this.endpoint = endpoint;
     }
 
     @Override
@@ -44,7 +47,7 @@ public class RateLimitInterceptor implements HandlerInterceptor {
         TenantRateLimiter.Decision decision = guard.call("rate_limit", () -> limiter.tryAcquire(tenantId),
                 TenantRateLimiter.Decision.ALLOW);
         if (!decision.allowed()) {
-            metrics.rateLimited("create_incident");
+            metrics.rateLimited(endpoint);
             throw new RateLimitExceededException(limiter.limit(), decision.retryAfterSeconds());
         }
         return true;

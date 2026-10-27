@@ -32,4 +32,10 @@ public record InvestigationResponse(
         return new InvestigationResponse(incidentId, InvestigationStatus.PENDING,
                 null, null, null, null, null, null, null, null, null, null, null);
     }
+
+    /** No investigation run exists and none is on its way (see InvestigationService): can be retried. */
+    public static InvestigationResponse notStarted(UUID incidentId) {
+        return new InvestigationResponse(incidentId, InvestigationStatus.NOT_STARTED,
+                null, null, null, null, null, null, null, null, null, null, null);
+    }
 }

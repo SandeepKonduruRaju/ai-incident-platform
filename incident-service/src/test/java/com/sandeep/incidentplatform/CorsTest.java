@@ -1,5 +1,6 @@
 package com.sandeep.incidentplatform;
 
+import com.sandeep.incidentplatform.service.IdempotentIncidentCreator;
 import com.sandeep.incidentplatform.controller.IncidentController;
 import com.sandeep.incidentplatform.security.SecurityConfig;
 import com.sandeep.incidentplatform.service.IncidentService;
@@ -16,7 +17,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 // Milestone 4B: only the configured UI origin may call the API cross-origin (preflight checked by Spring Security).
 @WebMvcTest(controllers = IncidentController.class, properties = "app.cors.allowed-origins=http://localhost:5173")
-@Import(SecurityConfig.class)
+@Import({SecurityConfig.class, IdempotentIncidentCreator.class}) // the creator is real; IncidentService is mocked
 class CorsTest {
 
     @Autowired

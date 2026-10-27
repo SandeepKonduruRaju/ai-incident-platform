@@ -12,6 +12,7 @@ export function fakeApi(overrides: Partial<ApiClient> = {}): ApiClient {
     getIncident: vi.fn(),
     createIncident: vi.fn(),
     getInvestigation: vi.fn(),
+    retryInvestigation: vi.fn(),
     ...overrides,
   } as ApiClient;
 }

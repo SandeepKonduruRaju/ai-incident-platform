@@ -1,0 +1,119 @@
+/* Design tokens: the only place colours, type and spacing are defined. Components use var(--...) only.
+   Theme: light by default; dark follows prefers-color-scheme unless the header toggle pinned one
+   (<html data-theme="light|dark">, see src/theme.ts). The dark block is repeated for the two ways to reach it.
+   Contrast (WCAG AA, checked): ink, slate and signal pass on page and surface in both themes; anything drawn on the
+   marker uses ink only (slate and signal fall below 4.5:1 there). Severity text sits on the surface colour. */
+:root {
+  color-scheme: light;
+
+  --page: #eef1f4; /* fog */
+  --surface: #ffffff; /* paper */
+  --surface-sunk: #f6f8fa;
+  --ink: #1b2430;
+  --slate: #5b6675;
+  --line: #d5dbe2;
+  --line-strong: #b4bcc7;
+  --marker: #f2d27a;
+  --signal: #2f5bd3;
+  --signal-ink: #ffffff; /* text on a signal background */
+  --hover: #e7ecf3;
+
+  --sev-critical: #b3261e;
+  --sev-high: #c2410c;
+  --sev-medium: #a16207;
+  --sev-low: #3f6f8f;
+
+  --ok: #2e7d4a;
+  --danger: #b3261e;
+  --danger-bg: #fbeae8;
+  --warn: #7a4e00;
+  --warn-bg: #fbf1d6;
+
+  --scrim: rgba(27, 36, 48, 0.45);
+  --sheet-shadow: 0 -8px 24px rgba(27, 36, 48, 0.18);
+
+  /* Type: Public Sans for the interface, Source Serif 4 for the investigation report. */
+  --font-ui: 'Public Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-report: 'Source Serif 4', Georgia, 'Times New Roman', serif;
+  --text-xs: 0.8125rem; /* 13px: meta lines */
+  --text-sm: 0.875rem; /* 14px: secondary text, labels */
+  --text-md: 1rem; /* 16px: body */
+  --text-report: 1.0625rem; /* 17px: report prose (serif reads smaller) */
+  --text-lg: 1.25rem; /* 20px: section headings */
+  --text-xl: 1.625rem; /* 26px: page titles */
+  --leading: 1.5;
+  --leading-report: 1.65;
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --gutter: 1rem; /* page side padding; 16px at phone width */
+
+  --radius: 6px;
+  --radius-lg: 10px;
+  --header-height: 3.5rem;
+  --motion: 180ms ease-out;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+    --page: #1a2029;
+    --surface: #222a35;
+    --surface-sunk: #1e252f;
+    --ink: #e6eaf0;
+    --slate: #9aa5b4;
+    --line: #333d4b;
+    --line-strong: #4a5566;
+    --marker: rgba(242, 210, 122, 0.28);
+    --signal: #7d9bf0;
+    --signal-ink: #1a2029;
+    --hover: #2a3341;
+    --sev-critical: #f28b82;
+    --sev-high: #f5a26b;
+    --sev-medium: #e3b341;
+    --sev-low: #8db8d6;
+    --ok: #7fc79a;
+    --danger: #f2b8b5;
+    --danger-bg: #3a2426;
+    --warn: #f0cf85;
+    --warn-bg: #33301f;
+    --scrim: rgba(0, 0, 0, 0.6);
+    --sheet-shadow: 0 -8px 24px rgba(0, 0, 0, 0.5);
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --page: #1a2029;
+  --surface: #222a35;
+  --surface-sunk: #1e252f;
+  --ink: #e6eaf0;
+  --slate: #9aa5b4;
+  --line: #333d4b;
+  --line-strong: #4a5566;
+  --marker: rgba(242, 210, 122, 0.28);
+  --signal: #7d9bf0;
+  --signal-ink: #1a2029;
+  --hover: #2a3341;
+  --sev-critical: #f28b82;
+  --sev-high: #f5a26b;
+  --sev-medium: #e3b341;
+  --sev-low: #8db8d6;
+  --ok: #7fc79a;
+  --danger: #f2b8b5;
+  --danger-bg: #3a2426;
+  --warn: #f0cf85;
+  --warn-bg: #33301f;
+  --scrim: rgba(0, 0, 0, 0.6);
+  --sheet-shadow: 0 -8px 24px rgba(0, 0, 0, 0.5);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion: 0ms linear;
+  }
+}

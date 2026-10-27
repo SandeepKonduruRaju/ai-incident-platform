@@ -264,6 +264,9 @@ class InvestigationControllerTest {
         Incident incident = new Incident(UUID.randomUUID(), TENANT, "payment-service timing out", "Requests hang",
                 IncidentSeverity.HIGH, IncidentStatus.OPEN, "payment-service", Instant.now());
         when(incidentService.findById(TENANT, incident.id())).thenReturn(Optional.of(incident));
+        // Its investigation request: older than the worker runs in these tests, and not sent yet (so "no run" = PENDING).
+        when(incidentService.latestInvestigationRequest(incident.id())).thenReturn(Optional.of(
+                new IncidentService.InvestigationRequest(UUID.randomUUID(), Instant.parse("2026-10-19T15:49:00Z"), false)));
         return incident.id();
     }
 

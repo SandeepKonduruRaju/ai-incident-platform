@@ -1,6 +1,8 @@
 """Repository for worker.investigations: create, claim, save. SQLAlchemy Core, one short transaction each.
 
 Lifecycle:  PENDING --claim--> RUNNING --save--> COMPLETED | FAILED
+               |                 |  ^
+               +--supersede--> SUPERSEDED  (a newer request exists for the incident: never run, no LLM call)
                                  |  ^
                                  |  +-- claim again (crash recovery: the run died before saving)
                                  +--release--> PENDING  (LLM config error: not this incident's fault)
@@ -23,7 +25,8 @@ from app.db import investigations, processed_events
 from app.events import IncidentCreatedEvent, IncidentCreatedPayload
 
 CLAIMABLE = ("PENDING", "RUNNING")
-TERMINAL = ("COMPLETED", "FAILED")
+TERMINAL = ("COMPLETED", "FAILED", "SUPERSEDED")
+SUPERSEDED_REASON = "superseded by a newer investigation request for this incident"
 
 
 @dataclass(frozen=True)
@@ -185,6 +188,21 @@ async def save_failed(
     # The evidence is stored even on failure: the engineer still gets the retrieved logs and runbooks.
     values = {"status": "FAILED", "result": None, "evidence": evidence, "failure_reason": reason[:2000]}
     return await _finish(engine, ref, values | _usage_values(usage, attempts, prompt_version))
+
+
+async def mark_superseded(engine: AsyncEngine, ref: InvestigationRef) -> bool:
+    """PENDING/RUNNING -> SUPERSEDED, fenced like a claim (False: another run took the row meanwhile)."""
+    async with engine.begin() as conn:
+        result = await conn.execute(
+            update(investigations)
+            .where(
+                investigations.c.id == ref.id,
+                investigations.c.status.in_(CLAIMABLE),
+                investigations.c.run_count == ref.run_count,
+            )
+            .values(status="SUPERSEDED", failure_reason=SUPERSEDED_REASON, completed_at=datetime.now(UTC))
+        )
+        return result.rowcount == 1
 
 
 async def release(engine: AsyncEngine, ref: InvestigationRef) -> bool:

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ApiError, createApiClient } from './client';
+import { ApiError, CREATE_TIMEOUT_MESSAGE, CREATE_TIMEOUT_MS, createApiClient } from './client';
 
 function response(status: number, body: unknown, headers: Record<string, string> = {}) {
   return new Response(body === undefined ? null : JSON.stringify(body), {
@@ -44,5 +44,45 @@ describe('api client', () => {
     const error = (await apiDown.listIncidents(0, 20).catch((e: unknown) => e)) as ApiError;
     expect(error.status).toBe(0);
     expect(error.requestId).toMatch(/.+/);
+  });
+
+  it('sends the Idempotency-Key when reporting an incident', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(response(201, { id: 'i' }));
+    const api = createApiClient({ getToken: () => 'tok', fetchImpl });
+
+    await api.createIncident({ title: 't', severity: 'LOW', affectedService: 's' }, { idempotencyKey: 'key-1' });
+
+    expect(fetchImpl.mock.calls[0][1].headers['Idempotency-Key']).toBe('key-1');
+  });
+
+  it('gives up on POST /incidents after 15 s with a "may have been saved" timeout error', async () => {
+    vi.useFakeTimers();
+    try {
+      // A server that never answers: fetch only settles when the client aborts it.
+      const fetchImpl = vi.fn(
+        (_url: RequestInfo | URL, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))),
+      );
+      const api = createApiClient({ getToken: () => 'tok', fetchImpl });
+
+      const pending = api.createIncident({ title: 't', severity: 'LOW', affectedService: 's' }).catch((e: unknown) => e);
+      await vi.advanceTimersByTimeAsync(CREATE_TIMEOUT_MS - 1);
+      expect(fetchImpl.mock.calls[0][1]?.signal?.aborted).toBe(false); // still waiting just before the limit
+      await vi.advanceTimersByTimeAsync(1);
+
+      const error = (await pending) as ApiError;
+      expect(error).toBeInstanceOf(ApiError);
+      expect(error).toMatchObject({ status: 0, timedOut: true, message: CREATE_TIMEOUT_MESSAGE });
+      expect(error.requestId).toMatch(/.+/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a plain network failure is not reported as a timeout', async () => {
+    const api = createApiClient({ getToken: () => null, fetchImpl: vi.fn().mockRejectedValue(new TypeError('Failed to fetch')) });
+    const error = (await api.createIncident({ title: 't', severity: 'LOW', affectedService: 's' }).catch((e: unknown) => e)) as ApiError;
+    expect(error.timedOut).toBe(false);
+    expect(error.message).toMatch(/cannot reach the server/i);
   });
 });

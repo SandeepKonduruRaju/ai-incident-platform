@@ -2,7 +2,10 @@ import { useState, type FormEvent } from 'react';
 import { ROLES, type Role } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import { ErrorMessage } from '../components/ErrorMessage';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
+import { ROLE_LABELS } from '../labels';
 import { useRouter } from '../router';
+import { safeNextPath } from '../text';
 import styles from './Pages.module.css';
 
 /**
@@ -17,6 +20,7 @@ export function LoginPage() {
   const [role, setRole] = useState<Role>('RESPONDER');
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
+  useDocumentTitle('Sign in');
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -25,7 +29,8 @@ export function LoginPage() {
     try {
       const token = await api.issueDevToken({ subject: subject.trim(), tenantId: tenantId.trim(), roles: [role] });
       login({ token: token.accessToken, subject: subject.trim(), tenantId: tenantId.trim(), role });
-      navigate('/incidents');
+      // Back to the page that sent us here; never anywhere off this site (open redirect).
+      navigate(safeNextPath(new URLSearchParams(window.location.search).get('next')));
     } catch (e) {
       setError(e);
     } finally {
@@ -35,10 +40,10 @@ export function LoginPage() {
 
   return (
     <main className={styles.narrow}>
-      <h1>Sign in (development)</h1>
+      <h1>Sign in</h1>
       <p className={styles.muted}>
-        Issues a short-lived token from the dev-only endpoint. The token is kept in memory: refreshing the page signs you
-        out.
+        Development sign-in: issues a short-lived token from the dev-only endpoint. The token is kept in memory, so
+        refreshing the page signs you out.
       </p>
       <form onSubmit={submit} className={styles.form} noValidate>
         <label htmlFor="subject">User</label>
@@ -51,7 +56,7 @@ export function LoginPage() {
         <select id="role" value={role} onChange={(e) => setRole(e.target.value as Role)}>
           {ROLES.map((r) => (
             <option key={r} value={r}>
-              {r}
+              {ROLE_LABELS[r]}
             </option>
           ))}
         </select>

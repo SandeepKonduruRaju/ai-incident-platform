@@ -1,0 +1,173 @@
+.filters {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 10rem 10rem;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.field label {
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.field input,
+.field select {
+  min-height: 2.5rem;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.count {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--slate);
+}
+
+/* One list, one surface: rows separated by hairlines, not a card each. */
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.row {
+  --row-sev: var(--line-strong);
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 6.5rem 8.5rem 6rem;
+  gap: var(--space-2) var(--space-4);
+  align-items: center;
+  padding: var(--space-3) var(--space-4) var(--space-3) calc(var(--space-4) + 4px);
+  border-top: 1px solid var(--line);
+}
+
+.row:first-child {
+  border-top: none;
+}
+
+/* Severity: a thin bar on the left edge (the severity is also written out in the row). */
+.row::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 4px;
+  background: var(--row-sev);
+}
+
+.sev_CRITICAL { --row-sev: var(--sev-critical); }
+.sev_HIGH { --row-sev: var(--sev-high); }
+.sev_MEDIUM { --row-sev: var(--sev-medium); }
+.sev_LOW { --row-sev: var(--sev-low); }
+
+.row:hover,
+.row:focus-within {
+  background: var(--hover);
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.title {
+  color: var(--ink);
+  font-weight: 600;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+/* The title link covers the whole row, so a click anywhere opens the incident. */
+.title::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+
+.title:focus-visible {
+  outline: none;
+}
+
+.title:focus-visible::after {
+  outline: 2px solid var(--signal);
+  outline-offset: -2px;
+}
+
+.service {
+  font-size: var(--text-sm);
+  color: var(--slate);
+  overflow-wrap: anywhere;
+}
+
+/* Above the stretched link, so its tooltip (the full date) shows on hover. */
+.time {
+  position: relative;
+  z-index: 1;
+  justify-self: end;
+  font-size: var(--text-sm);
+  color: var(--slate);
+  white-space: nowrap;
+}
+
+.empty {
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+}
+
+.empty h2 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-lg);
+}
+
+.empty p {
+  margin: 0 0 var(--space-4);
+  color: var(--slate);
+}
+
+.pager {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-4);
+  padding-top: var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--slate);
+}
+
+@media (max-width: 640px) {
+  .filters {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .filters > :first-child {
+    grid-column: 1 / -1;
+  }
+
+  /* Title and service on top, then severity, status and time on one line. */
+  .row {
+    grid-template-columns: auto auto 1fr;
+    gap: var(--space-1) var(--space-3);
+  }
+
+  .main {
+    grid-column: 1 / -1;
+  }
+}

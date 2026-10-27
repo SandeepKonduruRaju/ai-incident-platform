@@ -1,5 +1,6 @@
 package com.sandeep.incidentplatform;
 
+import com.sandeep.incidentplatform.service.IdempotentIncidentCreator;
 import com.sandeep.incidentplatform.controller.IncidentController;
 import com.sandeep.incidentplatform.security.SecurityConfig;
 import com.sandeep.incidentplatform.service.IncidentService;
@@ -25,7 +26,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * mistaken for cross-origin calls and refused (found by the Playwright e2e test).
  */
 @WebMvcTest(IncidentController.class)
-@Import(SecurityConfig.class)
+@Import({SecurityConfig.class, IdempotentIncidentCreator.class}) // the creator is real; IncidentService is mocked
 class CorsDisabledTest {
 
     @Autowired
