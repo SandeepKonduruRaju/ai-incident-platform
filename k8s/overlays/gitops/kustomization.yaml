@@ -19,13 +19,13 @@ resources:
 images:
   - name: incident-service
     newName: ghcr.io/sandeepkondururaju/incident-service
-    newTag: 7fe26b30e5ece90eb76f0f2c83e1ecb82c3dba6b
+    newTag: 39baa9795a09f1ac1b9e3cf299f4b869642e5085
   - name: investigation-worker
     newName: ghcr.io/sandeepkondururaju/investigation-worker
-    newTag: 7fe26b30e5ece90eb76f0f2c83e1ecb82c3dba6b
+    newTag: 39baa9795a09f1ac1b9e3cf299f4b869642e5085
   - name: frontend
     newName: ghcr.io/sandeepkondururaju/frontend
-    newTag: 22a9501305f7e272592a4ad1dfe92305449a1134
+    newTag: 39baa9795a09f1ac1b9e3cf299f4b869642e5085
   # The worker-ingest Job: same image, but only bumped when the synthetic data changes (see the header).
   - name: investigation-worker-ingest
     newName: ghcr.io/sandeepkondururaju/investigation-worker
