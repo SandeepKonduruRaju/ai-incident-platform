@@ -28,7 +28,10 @@ from app.logging_context import request_id_var, tenant_id_var, value_context
 log = logging.getLogger(__name__)
 
 TOKEN_HEADER = "X-Internal-Token"
-SNIPPET_CHARS = 200
+# The citation's evidence text: the whole chunk (chunks are ~1,000 characters at most), so the UI can show a
+# word-boundary preview with "Show more". Cutting here at 200 characters split words with no ellipsis and left
+# nothing to expand. The cap only guards against an unexpectedly huge chunk.
+SNIPPET_CHARS = 4000
 FAILURE_REASON_CHARS = 300
 _INLINE_LABEL = re.compile(r"\[(C\d+)\]")
 _SAFE_REQUEST_ID = re.compile(r"[A-Za-z0-9._-]{1,64}")  # same rule as incident-service's RequestIdFilter
@@ -88,7 +91,12 @@ router = APIRouter(prefix="/internal/v1", dependencies=[Depends(verify_internal_
 async def latest_investigation(engine: AsyncEngine, tenant_id: str, incident_id: UUID) -> dict[str, Any] | None:
     query = (
         select(investigations)
-        .where(investigations.c.tenant_id == tenant_id, investigations.c.incident_id == incident_id)
+        .where(
+            investigations.c.tenant_id == tenant_id,
+            investigations.c.incident_id == incident_id,
+            # A superseded request was never run: the incident's investigation is the newer request's row.
+            investigations.c.status != "SUPERSEDED",
+        )
         .order_by(investigations.c.created_at.desc(), investigations.c.id.desc())
         .limit(1)
     )

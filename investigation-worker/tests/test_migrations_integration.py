@@ -17,7 +17,7 @@ pytestmark = pytest.mark.integration
 async def test_migrations_are_at_head(engine):
     async with engine.connect() as conn:
         version = (await conn.execute(text("SELECT version_num FROM worker.alembic_version"))).scalar_one()
-    assert version == "0004"
+    assert version == "0005"
 
 
 async def test_vector_extension_is_installed(engine):
@@ -137,4 +137,4 @@ async def test_migration_0003_downgrade_and_upgrade_again(database_url):
             ).scalar_one()
     finally:
         await engine.dispose()
-    assert (version, has_column) == ("0004", 1)  # back at head, with 0003's column re-created
+    assert (version, has_column) == ("0005", 1)  # back at head, with 0003's column re-created

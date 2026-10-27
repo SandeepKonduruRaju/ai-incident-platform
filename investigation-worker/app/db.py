@@ -27,7 +27,7 @@ investigations = Table(
     Column("id", Uuid, primary_key=True),
     Column("incident_id", Uuid, nullable=False),
     Column("tenant_id", String(64), nullable=False),
-    Column("status", String(20), nullable=False),  # PENDING | RUNNING | COMPLETED | FAILED (migration 0004)
+    Column("status", String(20), nullable=False),  # PENDING | RUNNING | COMPLETED | FAILED (0004) | SUPERSEDED (0005)
     Column("request_id", String(255)),
     Column("created_at", DateTime(timezone=True), nullable=False),
     # --- migration 0004: the investigation input and outcome ---
