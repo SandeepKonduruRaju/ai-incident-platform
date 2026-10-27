@@ -46,9 +46,10 @@ spec:
             - name: http
               containerPort: 8080
           env:
-            # Used only by nginx's /api proxy block; in Kubernetes the Ingress routes /api itself.
+            # Used only by nginx's /api proxy block; in Kubernetes the Ingress routes /api itself. Fully qualified:
+            # nginx's runtime resolver does not use the pod's DNS search domains.
             - name: API_UPSTREAM
-              value: incident-service:8080
+              value: incident-service.incident-platform.svc.cluster.local:8080
           readinessProbe:
             httpGet:
               path: /
