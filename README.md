@@ -2,28 +2,50 @@
 
 [![CI](https://github.com/SandeepKonduruRaju/ai-incident-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/SandeepKonduruRaju/ai-incident-platform/actions/workflows/ci.yml)
 
-A multi-tenant backend that records production incidents and investigates them automatically. When
-an incident is created, a Java API publishes an event via a transactional outbox. A Python worker
-consumes it, retrieves evidence for that tenant (logs, metrics, runbooks, past incidents) with hybrid
-search, and asks Claude for a root cause, contributing factors and remediation. Every finding must
-cite the evidence it rests on; the answer is validated before it is stored. Users read the result
-through the same authenticated API.
+A multi-tenant platform that records production incidents and investigates them automatically. When an incident is
+reported, a Java API stores it together with an investigation request (transactional outbox). A Python worker
+consumes the request, retrieves that tenant's evidence (logs, metrics, runbooks, past incidents) with hybrid search,
+and asks Claude for a root cause, contributing factors and numbered remediation steps. Every finding must cite the
+evidence it rests on, citations are validated before anything is stored, and when the evidence is thin the system
+says so instead of guessing. A React UI shows the report next to its evidence: selecting a citation highlights the
+cited sentence and the evidence like a highlighter pen.
+
+## 60-second demo
+
+An on-call engineer at 2 a.m. reports "Payment requests failing after configuration deploy". Within seconds the
+investigation names the cause (the pool size lowered from 40 to 10 in a config change) with high confidence, and
+every sentence points at the deploy log, the pool metric, the runbook or a matching past incident. A vaguer report,
+"Checkout feels slow for some customers", gets an honest "Low confidence — not enough evidence to confirm a cause".
+
+| | |
+|---|---|
+| ![Incident list](docs/screenshots/list-1440-light.png) | ![Confident investigation, citation selected](docs/screenshots/investigation-confident-1440-light.png) |
+| ![Abstaining investigation](docs/screenshots/investigation-abstained-1440-light.png) | ![Report an incident](docs/screenshots/report-form-1440-light.png) |
+
+Dark mode and phone layouts are in [docs/screenshots/](docs/screenshots/). To reproduce: seed the demo tenant with
+`python -m app.seed_demo` ([Demo data](#demo-data)), then `npm run screenshots:demo` in `frontend/` (read-only).
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    U[Client<br/>Bearer JWT] --> API[incident-service<br/>Spring Boot 4 · Java 17]
-    API -->|same transaction| DB[(PostgreSQL 18<br/>incidents + outbox)]
+    B[Browser<br/>React UI] -->|same origin| N[ui: nginx<br/>static + /api proxy]
+    N --> API[incident-service<br/>Spring Boot 4 · Java 17]
+    API -->|one transaction| DB[(PostgreSQL 18 + pgvector<br/>incidents + outbox)]
+    API <-->|cache, rate limits<br/>fail open| RD[(Redis 8)]
     DB -->|OutboxRelay| K[[Kafka<br/>incident-events]]
     K --> W[investigation-worker<br/>FastAPI · aiokafka]
     K -. poison / permanent errors .-> DLQ[[incident-events.DLQ]]
+    W -->|superseded check| DB
     W --> R[Hybrid retrieval<br/>pgvector HNSW + tsvector<br/>RRF → cross-encoder rerank]
     R --> G[LangGraph<br/>retrieve → analyse → validate → repair]
-    G -->|structured outputs| C[Claude Haiku]
+    G -->|structured outputs| C[Claude Haiku 5.5]
     G --> WDB[(worker schema<br/>investigations, chunks)]
-    API -->|GET /incidents/id/investigation<br/>X-Internal-Token| W
+    API -->|GET internal API<br/>X-Internal-Token| W
 ```
+
+Flows, data ownership and failure behaviour: [docs/architecture.md](docs/architecture.md). Decisions with their
+alternatives: [docs/adr/](docs/adr/).
 
 ## Tech stack
 
@@ -49,6 +71,43 @@ ghcr.io), Docker Compose, GitHub Actions (tests, ruff, Trivy image scan).
 | **Structured outputs** | One Pydantic model generates the JSON schema sent to Claude and validates the answer; unknown citation labels trigger a single repair attempt. |
 | **Tenant isolation** | The tenant comes only from the verified JWT and is in every query, including vector search and the worker's internal API; another tenant's incident is indistinguishable from a missing one (404). |
 | **Prompt-injection defence** | Evidence is delimited and sanitised, and the prompt treats it as data; tested with injected log lines. |
+
+Architecture decision records:
+
+| ADR | Decision |
+|---|---|
+| [0001](docs/adr/0001-transactional-outbox.md) | Transactional outbox for investigation requests |
+| [0002](docs/adr/0002-superseded-request-check.md) | Worker skips superseded requests by reading `outbox_events` (accepted coupling) |
+| [0003](docs/adr/0003-fail-open-redis-circuit-breaker.md) | Redis is optional: fail open behind a circuit breaker |
+| [0004](docs/adr/0004-cache-only-terminal-investigations.md) | Cache only COMPLETED/FAILED investigations |
+| [0005](docs/adr/0005-abstain-over-hallucinate.md) | Abstain rather than guess; validate every citation |
+| [0006](docs/adr/0006-not-started-and-retry.md) | NOT_STARTED status and retry through the outbox |
+| [0007](docs/adr/0007-same-origin-no-cors.md) | Same origin for UI and API (no CORS) |
+
+## Results
+
+**Tests** (all with the fake LLM, no API cost; integration tests use Testcontainers):
+
+| Suite | Tests |
+|---|---|
+| incident-service (`mvnw clean verify`) | 106 (unit, MockMvc slices, H2 and PostgreSQL/Redis/Kafka Testcontainers) |
+| investigation-worker (`pytest`) | 314 passed, 3 skipped (the live-LLM tests, opt-in) |
+| frontend (Vitest) | 68 |
+| frontend (Playwright e2e, against the running stack) | 1 smoke test: login → report → Completed → select a citation |
+
+**Load test** (k6 against the compose stack on one 8-vCPU laptop shared by every container and the load generator;
+full report and caveats in [docs/load-test.md](docs/load-test.md)):
+
+| Scenario | p95 | Errors | Result |
+|---|---|---|---|
+| End to end, 30 incidents/min (POST → Completed: median 1.1 s, p95 2.7 s) | 257 ms | 0 % | ✅ 150/150 investigations completed |
+| Investigation reads, 20 req/s, cache **on** (hit ratio 0.98) | 44 ms | 0 % | ✅ |
+| Investigation reads, 20 req/s, cache **off** | 1,042 ms | 0.1 % | ❌ |
+| API mix, 10 → 100 VUs | 4,089 ms | 17.1 % | ❌ first bottleneck: the CPU-bound worker slows the synchronous read path |
+| Spike, 10 → 200 VUs in 10 s | 1,491 ms | 3.2 % | ❌ API back to normal within 30 s; backlog drained in ~18 min |
+
+The load test also found a bug in the fail-open Redis logic (a thundering herd on the worker), fixed with a circuit
+breaker ([ADR 0003](docs/adr/0003-fail-open-redis-circuit-breaker.md)).
 
 ## Evaluation (synthetic data)
 
@@ -94,6 +153,28 @@ cd incident-service;      .\mvnw.cmd test                                   # Do
 cd ..\investigation-worker; .\.venv\Scripts\python.exe -m pytest -q          # integration tests start containers
 .\.venv\Scripts\python.exe -m pytest -m eval_smoke -q                        # eval pipeline, FakeLLM, ~20 s
 ```
+
+### Demo data
+
+A dev-only seed fills tenant `demo` with eight realistic incidents and the evidence that makes them investigable
+([investigation-worker/app/demo_data.py](investigation-worker/app/demo_data.py)): a DB connection pool exhausted
+after a config deploy (strong evidence, should be confident), checkout latency with almost no evidence (should
+abstain), Kafka consumer lag after a rebalance, an expired internal TLS certificate, OOMKilled pods from a memory
+leak, Redis evictions causing a cache stampede, payment-provider timeouts and a full log volume. Mixed severities and
+statuses (set through `PATCH /api/v1/incidents/{id}/status`).
+
+```powershell
+cd investigation-worker
+$env:DATABASE_URL = "postgresql+asyncpg://incident_app:localpass@localhost:5433/incident_platform"
+.\.venv\Scripts\python.exe -m app.seed_demo --dry-run   # what it would do; writes nothing
+.\.venv\Scripts\python.exe -m app.seed_demo             # ingest evidence, report the incidents (API on :8080)
+```
+
+It is not a migration and never runs on its own. It ingests the evidence first, with log and metric timestamps
+anchored to the moment it runs (retrieval only looks 2 h back from an incident), then reports each incident through
+the public API with a dev token. It is idempotent (titles that already exist in `demo` are skipped, and each request
+carries a fixed `Idempotency-Key`) and prints ids and titles, never the token. Each reported incident starts a real
+investigation: with `LLM_PROVIDER=anthropic` that costs about $0.0007 each.
 
 ## Observability
 
@@ -259,19 +340,18 @@ the bootstrap → deploy → destroy-the-same-day steps.
 
 ## Frontend
 
-A small React + TypeScript UI in [frontend/](frontend/) (milestone 4B): sign in (dev token), list incidents (paginated,
-newest first, severity/status badges), create one (client-side validation with the API's rules, 400 field errors and
-the 429 rate-limit message shown inline), and watch its AI investigation arrive: the page polls
-`GET /api/v1/incidents/{id}/investigation` honouring `Retry-After` until COMPLETED/FAILED, then shows the summary,
-confidence, root cause, contributing factors and remediation. Every evidence marker (`C1`, `C2`, ...) is a button that
-shows the source type, source id and snippet it cites. Errors show the API's message and the request id.
-
-<!-- Screenshots (add the PNGs under docs/screenshots/):
-![Sign in](docs/screenshots/login.png)
-![Incidents](docs/screenshots/incidents.png)
-![New incident with validation errors](docs/screenshots/new-incident-errors.png)
-![Investigation with an open citation](docs/screenshots/investigation-completed.png)
--->
+A React + TypeScript UI in [frontend/](frontend/), designed as an annotated case file for an on-call engineer:
+- **Incidents:** the whole row is a link; severity as a coloured edge plus a word; status with a small indicator;
+  relative times with the full date as a tooltip; search and severity/status filters; an empty state.
+- **Report an incident:** client-side validation with the API's rules (400 field errors and the 429 message inline),
+  service suggestions from existing incidents, an `Idempotency-Key` per report and a 15 s timeout that says the
+  incident may have been saved and that reporting again is safe.
+- **Investigation:** polls `GET .../investigation` honouring `Retry-After` until it is final. The report (serif) sits
+  next to a sticky evidence rail; citations are numbered marks `[1] [2]`, and selecting one highlights the cited
+  sentence and its evidence with a marker colour. On phones the evidence opens in a focus-trapped bottom sheet (the
+  page behind it is `inert`). Confidence is written out; NOT_STARTED and FAILED offer a Retry button.
+- **Everywhere:** light/dark/system theme, self-hosted fonts, visible focus, WCAG AA contrast (checked), reduced motion
+  respected, per-page titles, errors with the API's message and the request id.
 
 | Decision | Choice and why |
 |---|---|
@@ -279,7 +359,7 @@ shows the source type, source id and snippet it cites. Errors show the API's mes
 | Serving | nginx (non-root, pinned) serves the build and proxies `/api` to incident-service: one origin, so **no CORS** in containers. The Vite dev server proxies `/api` the same way. In Kubernetes the Ingress routes `/` to the UI and `/api` to incident-service on the same host. |
 | CORS | Off by default (`CORS_ALLOWED_ORIGINS` empty: every cross-origin request is refused). Only for a UI on another origin in development, e.g. `$env:CORS_ALLOWED_ORIGINS = "http://localhost:5173"`. |
 | API types | Hand-written from the Java DTOs ([frontend/src/api/types.ts](frontend/src/api/types.ts)): the API is small, and springdoc would add a dependency and a public spec endpoint to a Boot 4 service for little gain. |
-| Styling | CSS Modules (built into Vite) + a few CSS variables: scoped class names, light/dark, no extra dependency or UI kit. |
+| Styling | CSS Modules (built into Vite) and one tokens file (`src/styles/tokens.css`) for colours, type and spacing: scoped class names, light/dark, no UI kit. |
 | Routing | A 60-line History-API router for four routes instead of a routing library. |
 
 ```powershell
@@ -299,10 +379,11 @@ cd frontend; npx playwright install chromium; npm run e2e
 
 | Method | Path | Roles |
 |---|---|---|
-| POST | `/api/v1/incidents` | RESPONDER, ADMIN |
+| POST | `/api/v1/incidents` | RESPONDER, ADMIN; per-tenant rate limit (429 + `Retry-After`). Optional `Idempotency-Key` (1-255 visible ASCII characters, per tenant): 201 the first time; the same key and body again → **200** with the original incident and `Idempotent-Replayed: true` (nothing new created or enqueued); the same key with a different body → 422 |
 | GET | `/api/v1/incidents`, `/api/v1/incidents/{id}` | VIEWER, RESPONDER, ADMIN |
 | PATCH | `/api/v1/incidents/{id}/status` | RESPONDER, ADMIN |
-| GET | `/api/v1/incidents/{id}/investigation` | VIEWER, RESPONDER, ADMIN (PENDING/RUNNING carry `Retry-After`; worker down → 503) |
+| GET | `/api/v1/incidents/{id}/investigation` | VIEWER, RESPONDER, ADMIN (PENDING/RUNNING carry `Retry-After`; worker down → 503; `NOT_STARTED` when no run exists and none is on its way) |
+| POST | `/api/v1/incidents/{id}/investigation/retry` | RESPONDER, ADMIN; only from `NOT_STARTED` or `FAILED` (409 otherwise); 202 + a new event through the outbox; its own per-tenant rate limit |
 | POST | `/api/v1/dev/token` | public, `dev` profile only |
 
 Errors are RFC 9457 Problem Details; every response carries an `X-Request-Id` that is propagated to the
@@ -318,22 +399,45 @@ worker's logs.
 - **Time-windowed evidence**: logs and metrics are searched around `createdAt`; an incident filed long
   after its symptoms gets only runbooks and past incidents.
 - **Dev-only sign-in in the UI**: the frontend uses the `dev` token endpoint; there is no identity provider yet.
+- **Worker reads incident-service's outbox**: the superseded-request check queries `public.outbox_events` directly
+  (an accepted coupling, [ADR 0002](docs/adr/0002-superseded-request-check.md)).
+- **Citations are checked for existence, not support**: 6% of findings in the evaluation cite evidence that does not
+  fully support them ([ADR 0005](docs/adr/0005-abstain-over-hallucinate.md)).
+- **Outbox grows forever**: published rows are never deleted.
+
+## What I'd do next
+
+None of this is built yet:
+
+- **Event-driven read model.** The worker publishes `InvestigationCompleted`/`Failed`; incident-service stores the
+  result in its own table. Reads stop calling the worker synchronously (the load test's first bottleneck), the cache
+  becomes optional, and the superseded check could move to incident-service.
+- **Outbox retention.** A scheduled job deletes rows published more than N days ago (in batches, using the
+  `published_at` index), so the table and its indexes stay small.
+- **Relay publishing outside the database transaction.** Today the relay holds the rows' locks while it waits for
+  Kafka. Claim a batch (mark it in flight with a lease), commit, publish, then mark it published; or use change data
+  capture (Debezium) on the outbox table.
+- **Citation-supports-claim validation.** A second, cheap pass that checks each finding against the text of the
+  evidence it cites, and drops or flags unsupported findings before saving, closing the 6% gap above.
 
 ## Repository layout
 
 ```
 incident-service/       Spring Boot API, Flyway migrations, outbox relay, compose.yaml (whole stack)
 frontend/               React + TypeScript UI (Vite), nginx image, Vitest + Playwright tests
+  scripts/              read-only demo screenshot script
 loadtest/               k6 scenarios (milestone 4), results in docs/load-test.md
 investigation-worker/   Kafka consumer, ingestion, retrieval, LangGraph investigation, internal API, eval
+  app/seed_demo.py      dev-only demo seed (tenant "demo")
   data/synthetic/       generated logs, metrics, runbooks, past incidents (+ golden labels)
   data/eval/            evaluation cases
-docs/                   evaluation report, milestone study guide
+docs/                   architecture, ADRs, evaluation and load-test reports, screenshots, study guide
 ```
 
 ## Roadmap
 
 - **M1** Secure REST backend: JWT, RBAC, tenant isolation, Flyway, Testcontainers ✅
 - **M2** AI investigation: outbox, Kafka, idempotency, DLQ, hybrid RAG, LangGraph + Claude, evaluation ✅
-- **M3** Deployed app: CI/CD, Docker images, AWS, Terraform, Kubernetes, UI
-- **M4** Production quality: caching, observability, performance, reliability
+- **M3** Deployed app: CI/CD, Docker images, AWS, Terraform, Kubernetes, UI ✅
+- **M4** Production quality: caching, rate limits, observability, load testing, reliability (NOT_STARTED + retry,
+  superseded requests, idempotent create), UI redesign, docs ✅
