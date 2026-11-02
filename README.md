@@ -2,28 +2,36 @@
 
 [![CI](https://github.com/SandeepKonduruRaju/ai-incident-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/SandeepKonduruRaju/ai-incident-platform/actions/workflows/ci.yml)
 
-A multi-tenant platform that records production incidents and investigates them automatically. When an incident is
-reported, a Java API stores it together with an investigation request (transactional outbox). A Python worker
-consumes the request, retrieves that tenant's evidence (logs, metrics, runbooks, past incidents) with hybrid search,
-and asks Claude for a root cause, contributing factors and numbered remediation steps. Every finding must cite the
-evidence it rests on, citations are validated before anything is stored, and when the evidence is thin the system
-says so instead of guessing. A React UI shows the report next to its evidence: selecting a citation highlights the
-cited sentence and the evidence like a highlighter pen.
+When something breaks in production, most of the first half hour goes on digging: what was deployed, what the logs
+say, whether this has happened before. I built this project to find out how much of that digging an LLM can do
+*reliably*, and just as importantly, how to make it say "I don't know" when the evidence isn't there.
+
+Here's how it works. You report an incident. A Java API stores it, together with an investigation request, in one
+transaction (a transactional outbox that feeds Kafka). A Python worker picks up the request, pulls that tenant's logs,
+metrics, runbooks and past incidents with hybrid search, and asks Claude for a root cause, the contributing factors and
+the steps to fix it. Every finding has to cite its evidence, and the citations are checked before anything is saved.
+When the evidence is thin, you get an honest low-confidence answer instead of a confident guess. In the React UI, the
+report sits next to its evidence: click a citation and both the sentence and its source light up.
+
+The data is synthetic, since I don't have a real company's incidents to play with. The engineering around it, though
+(multi-tenancy, retries, idempotency, observability, load testing), is built the way I'd want it in a real system.
 
 ## 60-second demo
 
-An on-call engineer at 2 a.m. reports "Payment requests failing after configuration deploy". Within seconds the
-investigation names the cause (the pool size lowered from 40 to 10 in a config change) with high confidence, and
-every sentence points at the deploy log, the pool metric, the runbook or a matching past incident. A vaguer report,
-"Checkout feels slow for some customers", gets an honest "Low confidence — not enough evidence to confirm a cause".
+It's 2 a.m. and someone reports "Payment requests failing after configuration deploy". A few seconds later the
+investigation names the cause, a config change that dropped the connection pool from 40 to 10, with high confidence.
+Every sentence points at the deploy log, the pool metric, the runbook or a matching past incident. A vaguer report,
+"Checkout feels slow for some customers", gets "Low confidence — not enough evidence to confirm a cause", which is
+exactly what it should say.
 
 | | |
 |---|---|
 | ![Incident list](docs/screenshots/list-1440-light.png) | ![Confident investigation, citation selected](docs/screenshots/investigation-confident-1440-light.png) |
 | ![Abstaining investigation](docs/screenshots/investigation-abstained-1440-light.png) | ![Report an incident](docs/screenshots/report-form-1440-light.png) |
 
-Dark mode and phone layouts are in [docs/screenshots/](docs/screenshots/). To reproduce: seed the demo tenant with
-`python -m app.seed_demo` ([Demo data](#demo-data)), then `npm run screenshots:demo` in `frontend/` (read-only).
+These are real runs against Claude Haiku 5.5 on the demo tenant. To take them yourself, seed the tenant with
+`python -m app.seed_demo` ([Demo data](#demo-data)), then run `npm run screenshots:demo` in `frontend/`. The script
+only reads, and it also captures dark-mode and phone (390 px) versions.
 
 ## Architecture
 
@@ -61,6 +69,9 @@ ghcr.io), Docker Compose, GitHub Actions (tests, ruff, Trivy image scan).
 
 ## Key design decisions
 
+Most of the effort went into the unglamorous parts: making sure no investigation is lost, duplicated or overwritten,
+and that one tenant can never see another's data.
+
 | Decision | Why |
 |---|---|
 | **Transactional outbox** | The incident and its event are committed together; a relay publishes to Kafka, so no event is lost and none is sent for a rolled-back write. |
@@ -72,7 +83,7 @@ ghcr.io), Docker Compose, GitHub Actions (tests, ruff, Trivy image scan).
 | **Tenant isolation** | The tenant comes only from the verified JWT and is in every query, including vector search and the worker's internal API; another tenant's incident is indistinguishable from a missing one (404). |
 | **Prompt-injection defence** | Evidence is delimited and sanitised, and the prompt treats it as data; tested with injected log lines. |
 
-Architecture decision records:
+For the decisions that took real thought, the ADRs record what I chose, what I rejected, and what it costs:
 
 | ADR | Decision |
 |---|---|
@@ -86,7 +97,9 @@ Architecture decision records:
 
 ## Results
 
-**Tests** (all with the fake LLM, no API cost; integration tests use Testcontainers):
+All the numbers below come from real runs, not targets.
+
+**Tests** (all with the fake LLM, so they cost nothing; integration tests use Testcontainers):
 
 | Suite | Tests |
 |---|---|
@@ -106,13 +119,17 @@ full report and caveats in [docs/load-test.md](docs/load-test.md)):
 | API mix, 10 → 100 VUs | 4,089 ms | 17.1 % | ❌ first bottleneck: the CPU-bound worker slows the synchronous read path |
 | Spike, 10 → 200 VUs in 10 s | 1,491 ms | 3.2 % | ❌ API back to normal within 30 s; backlog drained in ~18 min |
 
-The load test also found a bug in the fail-open Redis logic (a thundering herd on the worker), fixed with a circuit
-breaker ([ADR 0003](docs/adr/0003-fail-open-redis-circuit-breaker.md)).
+Yes, three rows fail, and I've left them in on purpose: finding where it breaks was the point of the exercise. The
+first bottleneck is the synchronous read from the API to the worker (fixing it is the first item in
+[What I'd do next](#what-id-do-next)). The load test also caught a real bug: when Redis went down, the fail-open
+logic sent every request straight to the worker at once. A circuit breaker fixed it
+([ADR 0003](docs/adr/0003-fail-open-redis-circuit-breaker.md)).
 
 ## Evaluation (synthetic data)
 
-28 Claude-generated cases (standard, paraphrased, no-evidence, prompt-injection) run end to end through
-the production graph; Claude Haiku 5.5 investigates, an LLM judge scores the answers.
+28 Claude-generated cases (standard, paraphrased, no evidence, prompt injection) run end to end through the
+production graph. Claude Haiku 5.5 does the investigating and an LLM judge scores the answers. Take these numbers
+with a pinch of salt: the cases are small and clean, and the judge is the same model.
 
 | | root cause correct | faithful findings | citations valid | injection resisted | abstained when no evidence | cost / investigation | latency p50 / p95 |
 |---|---|---|---|---|---|---|---|
@@ -391,6 +408,8 @@ worker's logs.
 
 ## Known limitations
 
+Things I know are weak, so you don't have to find them:
+
 - **Synthetic data only**: the evaluation set is small and clean (one planted cause per incident), so the
   headline numbers carry wide error bars.
 - **Reads couple to the worker**: the investigation endpoint calls the worker synchronously (503 when it is
@@ -435,6 +454,8 @@ docs/                   architecture, ADRs, evaluation and load-test reports, sc
 ```
 
 ## Roadmap
+
+I built this in four milestones, each adding a layer on top of the last:
 
 - **M1** Secure REST backend: JWT, RBAC, tenant isolation, Flyway, Testcontainers ✅
 - **M2** AI investigation: outbox, Kafka, idempotency, DLQ, hybrid RAG, LangGraph + Claude, evaluation ✅
