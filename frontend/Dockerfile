@@ -9,6 +9,11 @@ COPY . .
 RUN npm run build
 
 FROM nginxinc/nginx-unprivileged:1.31.7-alpine3.24
+# CVE-2026-111497 (brotli-libs 1.2.0-r1, CRITICAL): the newest base still ships it, so upgrade that one package.
+# Drop this once a newer base image includes brotli-libs >= 1.2.1-r0.
+USER root
+RUN apk upgrade --no-cache brotli-libs
+USER 101
 # The template's ${API_UPSTREAM} and ${NGINX_LOCAL_RESOLVERS} are filled at start by the image's envsubst step (only
 # those two). NGINX_ENTRYPOINT_LOCAL_RESOLVERS makes the image export the container's DNS servers (see nginx.conf).
 ENV API_UPSTREAM=incident-service:8080 \
