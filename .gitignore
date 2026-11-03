@@ -14,6 +14,8 @@ k8s/.secrets/
 *.tfvars
 !*.tfvars.example
 infra/**/backend.hcl
+# Provider lock files belong to root modules (infra/bootstrap, infra/envs/*) only, not reusable modules.
+infra/modules/**/.terraform.lock.hcl
 crash.log
 # Load-test outputs (milestone 4): raw k6/Prometheus/docker-stats files; the summary is in docs/load-test.md.
 loadtest/results/
