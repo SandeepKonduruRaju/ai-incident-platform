@@ -1,6 +1,10 @@
 # AI Incident Investigation Platform
 
+
 [![CI](https://github.com/SandeepKonduruRaju/ai-incident-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/SandeepKonduruRaju/ai-incident-platform/actions/workflows/ci.yml)
+
+
+**Live demo:** https://incident.sandeepraju.dev (sign in with tenant `demo`, role RESPONDER; uses a fake LLM)
 
 When something breaks in production, most of the first half hour goes on digging: what was deployed, what the logs
 say, whether this has happened before. I built this project to find out how much of that digging an LLM can do
