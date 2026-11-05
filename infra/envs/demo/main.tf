@@ -174,6 +174,8 @@ module "incident_service" {
   }
   health_check_command = "curl -fsS http://127.0.0.1:8081/actuator/health/liveness || exit 1"
   log_retention_days   = var.log_retention_days
+  # Fargate's /tmp volume is root-owned and Tomcat (uid 10001) must write there.
+  readonly_root_filesystem = false
 
   cluster_arn        = aws_ecs_cluster.this.arn
   desired_count      = var.incident_service_desired_count
